@@ -212,7 +212,7 @@ class Controller:
         if reconnect:
             log.info("%s relay reattached", self.id)
             return
-        self.started_at = time.time()
+        self.started_at = self.started_at or time.time()
         await self._set_state(CONNECTED)
         if self.direction == "incoming":
             if not self.intro_done:
@@ -327,7 +327,7 @@ class Controller:
         sources = [caller_text, self.note, " ".join(f["value"] for f in self.note_facts)]
         out = [c for c in chips if guards.fact_guard(c, sources).ok]
         if not out:
-            out = ["Sorry, could you say that again?"]
+            out = ["Could you say that again?"]
         return out[:4]
 
     async def on_interrupt(self, utterance: str = "") -> None:

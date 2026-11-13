@@ -193,7 +193,7 @@ class RulesBrain:
         if _CARD.search(t):
             a.question_type = "out_of_scope"
             a.involves_money = True
-            a.chips = ["Can I pay when I pick it up?", "I'd rather pay in person.", "Sorry, could you say that again?"]
+            a.chips = ["Can I pay when I pick it up?", "I'd rather pay in person.", "Could you say that again?"]
             return a
         if _ROBOT.search(t):
             a.question_type = "robot_check"
@@ -247,7 +247,7 @@ class RulesBrain:
             a.question_type = "statement"
         a.chips = self._chips(a, t, casual)
         if a.unclear:
-            a.chips = ["Sorry, could you say that again?"] + [c for c in a.chips if "again" not in c][:2]
+            a.chips = ["Could you say that again?"] + [c for c in a.chips if "again" not in c][:2]
         return a
 
     def _chips(self, a: TurnAnalysis, t: str, casual: bool) -> list[str]:
@@ -260,16 +260,16 @@ class RulesBrain:
             return (["Yeah!", "No, sorry.", "Maybe, let me check."] if casual
                     else ["Yes, please.", "No, thank you.", "Let me think for a sec."])
         if qt in ("time", "number"):
-            return ["Let me check.", "Sorry, could you say that again?"]
+            return ["Let me check.", "Could you say that again?"]
         if qt == "info_request":
-            return ["One sec, let me find that.", "Sorry, could you say that again?"]
+            return ["One sec, let me find that.", "Could you say that again?"]
         if qt == "closing":
             return (["Love you, bye!", "Talk soon!", "Bye!"] if casual
                     else ["Thank you, bye!", "Thanks so much, have a good one."])
         if qt == "greeting":
             return (["Hey! How are you?", "Hi!"] if casual else ["Hi, thanks for picking up."])
         if qt == "open":
-            return ["Hmm, let me think.", "Sorry, could you say that again?"]
+            return ["Hmm, let me think.", "Could you say that again?"]
         return (["Yeah!", "Oh nice.", "Mm, okay."] if casual else ["Okay, thank you.", "Got it."])
 
     async def write_reply(self, signs: list[str], caller_text: str, context: dict, tone: Tone) -> str:
@@ -491,7 +491,7 @@ class GeminiBrain:
         a.involves_commitment = a.involves_commitment or rules.involves_commitment or a.involves_money
         a.unclear = a.unclear or rules.unclear
         if a.unclear and (not a.chips or "again" not in a.chips[0].lower()):
-            a.chips = ["Sorry, could you say that again?"] + a.chips[:2]
+            a.chips = ["Could you say that again?"] + a.chips[:2]
         known = {f["key"] for f in context.get("note_facts", [])}
         if a.note_fact_key not in known:
             a.note_fact_key = None

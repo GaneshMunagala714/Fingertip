@@ -191,6 +191,7 @@ _MONEY_RE = re.compile(
 _BOOKING_RE = re.compile(
     r"\b(book|booked|booking|reserve|reservation|schedule|scheduled|appointment|confirm|confirmed|"
     r"confirmation|sign me up|put me down|lock (it|that) in|go ahead|place the order|that's final|deal)\b", re.I)
+_ORDER_RE = re.compile(r"\b(place (it|the order|that)|put (it|that) in|ring (it|that) up|submit the order|order (it|that))\b", re.I)
 _AFFIRM_RE = re.compile(r"^\W*(yes|yeah|yep|yup|sure|ok|okay|sounds good|that works|perfect|great|fine|"
                         r"go ahead|do it|that's fine|that's great|alright|correct|right)\b", re.I)
 
@@ -208,17 +209,23 @@ def is_affirmative(text: str) -> bool:
 
 
 def commitment_guard(sentence: str, caller_line: str, analyzer_flag: bool = False) -> tuple[bool, str]:
-    """Return (needs_confirm, plain summary)."""
+    """Return (needs_confirm, plain summary for the confirm sheet)."""
     amount = first_amount(sentence) or first_amount(caller_line)
+    places = bool(_ORDER_RE.search(caller_line) or _ORDER_RE.search(sentence))
+    order = " and places the order" if places else ""
+    agrees = is_affirmative(sentence) or bool(_BOOKING_RE.search(sentence)) or bool(_ORDER_RE.search(sentence))
     if mentions_money(sentence):
-        return True, f"This agrees to pay {amount}" if amount else "This talks about money"
-    if _BOOKING_RE.search(sentence):
-        return True, "This confirms a booking"
+        return True, f"This agrees to pay {amount}{order}" if amount else "This talks about money"
     caller_commit = analyzer_flag or mentions_commitment(caller_line)
-    if caller_commit and is_affirmative(sentence) and not has_negation(sentence):
+    if caller_commit and agrees and not has_negation(sentence):
         if mentions_money(caller_line) and amount:
-            return True, f"This agrees to pay {amount}"
-        return True, "This says yes to a commitment"
+            return True, f"This agrees to pay {amount}{order}"
+        if places:
+            return True, "This places the order"
+        return True, "This confirms a booking" if _BOOKING_RE.search(sentence + " " + caller_line) \
+            else "This says yes to a commitment"
+    if _BOOKING_RE.search(sentence) or _ORDER_RE.search(sentence):
+        return True, "This places the order" if places else "This confirms a booking"
     return False, ""
 
 

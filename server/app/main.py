@@ -404,6 +404,7 @@ async def answer(sid: str, key: Optional[str] = None) -> dict:
         log.exception("answer failed")
         await end_session(c, "failed")
         raise HTTPException(502, "Couldn't pick up. The caller may have hung up.") from e
+    c.started_at = c.started_at or time.time()
     await c._set_state("CONNECTED")
     await hub.broadcast(c.snapshot())
     return {"ok": True}
