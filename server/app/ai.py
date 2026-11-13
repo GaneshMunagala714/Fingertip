@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from . import guards
 from .config import settings
+from .latency import latency
 
 log = logging.getLogger("ai")
 
@@ -296,6 +297,7 @@ _PHRASE = {
     "WHERE": "where?", "WHAT": "what?", "NOW": "now", "LATER": "later", "TODAY": "today", "TOMORROW": "tomorrow",
     "MORNING": "in the morning", "AFTERNOON": "in the afternoon", "NIGHT": "tonight", "WEEK": "this week",
     "MORE": "more", "SMALL": "a small", "LARGE": "a large", "READY": "ready", "HOME": "home",
+    "MAYBE": "maybe",
 }
 _STATES = {"GOOD": "good", "FINE": "fine", "BUSY": "busy", "TIRED": "tired", "HAPPY": "happy", "READY": "ready",
            "HOME": "home"}
@@ -321,8 +323,11 @@ def rules_sentence(signs: list[str], *, casual: bool, tone: str = "neutral") -> 
         return ""
     parts: list[str] = []
     neg = any(g in {"NO", "NOT", "DON'T", "DONT"} for g in gl)
-    rest = [g for g in gl if g not in {"YES", "NO", "NOT", "DON'T", "DONT"}]
-    if gl[0] == "YES":
+    hedge = "MAYBE" in gl
+    rest = [g for g in gl if g not in {"YES", "NO", "NOT", "DON'T", "DONT", "MAYBE"}]
+    if hedge:
+        parts.append("Maybe.")
+    elif gl[0] == "YES":
         parts.append("Yeah!" if casual else "Yes.")
     elif neg:
         parts.append("No," if rest else ("Nope." if casual else "No, thank you."))
@@ -386,6 +391,7 @@ Rules for any sentence you write:
 - Casual with family and friends, polite with businesses.
 - NEVER add a fact (number, price, name, day, time, date, item) the signer didn't sign, choose, or put in their note.
 - If the signs include NO, NOT or DON'T, the sentence must say no.
+- Only sound unsure (maybe, might, probably) if the signs include MAYBE; if they do, you must sound unsure.
 - One sentence (two very short ones at most). No emoji. No stage directions.
 - Never pretend the voice is the signer's own voice; never deny that an app is voicing for them."""
 
@@ -398,15 +404,17 @@ class GeminiBrain:
 
         self.client = genai.Client(api_key=settings.gemini_api_key)
         self.model = settings.gemini_model
+        self.reply_model = settings.gemini_reply_model or settings.gemini_model
         self.fallback = RulesBrain()
         self.ok: Optional[bool] = None
         self.last_error = ""
-        self._thinking_off = True
+        self._thinking = True
 
     async def check(self) -> bool:
         try:
-            m = await self.client.aio.models.get(model=self.model)
-            log.info("Gemini model ok: %s", getattr(m, "name", self.model))
+            for name in {self.model, self.reply_model}:
+                m = await self.client.aio.models.get(model=name)
+                log.info("Gemini model ok: %s", getattr(m, "name", name))
             self.ok = True
         except Exception as e:
             self.ok, self.last_error = False, f"model check failed: {e}"
@@ -414,7 +422,7 @@ class GeminiBrain:
         return bool(self.ok)
 
     async def _json(self, prompt: str, schema: type[BaseModel], temperature: float = 0.3,
-                    timeout: Optional[float] = None) -> BaseModel:
+                    timeout: Optional[float] = None, *, job: str, model: Optional[str] = None) -> BaseModel:
         from google.genai import types
 
         cfg = dict(
@@ -423,21 +431,25 @@ class GeminiBrain:
             response_schema=schema,
             temperature=temperature,
         )
-        if self._thinking_off:
-            cfg["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+        if self._thinking and settings.gemini_thinking_level:
+            cfg["thinking_config"] = types.ThinkingConfig(thinking_level=settings.gemini_thinking_level.upper())
         t0 = time.perf_counter()
         try:
             resp = await asyncio.wait_for(
                 self.client.aio.models.generate_content(
-                    model=self.model, contents=prompt, config=types.GenerateContentConfig(**cfg)),
+                    model=model or self.model, contents=prompt, config=types.GenerateContentConfig(**cfg)),
                 timeout=timeout or settings.gemini_timeout_s)
         except Exception as e:
-            # Some models reject thinking_budget=0; retry once without it.
-            if self._thinking_off and "thinking" in str(e).lower():
-                self._thinking_off = False
-                return await self._json(prompt, schema, temperature, timeout)
+            latency.record(f"gemini_{job}_fail_ms", (time.perf_counter() - t0) * 1000)
+            # A model that rejects the thinking setting: retry once without it, and say so in the log.
+            if self._thinking and "thinking" in str(e).lower():
+                log.warning("model rejected thinking_level; continuing without it: %s", e)
+                self._thinking = False
+                return await self._json(prompt, schema, temperature, timeout, job=job, model=model)
             raise
-        log.info("gemini %s %.0f ms", schema.__name__, (time.perf_counter() - t0) * 1000)
+        ms = (time.perf_counter() - t0) * 1000
+        latency.record(f"gemini_{job}_ms", ms)
+        log.info("gemini %s (%s) %.0f ms", job, model or self.model, ms)
         parsed = resp.parsed
         if isinstance(parsed, schema):
             return parsed
@@ -451,7 +463,7 @@ class GeminiBrain:
                 "Split the signer's note for an errand phone call into facts the app may say on its own "
                 "(each with a short natural sentence that states only that fact) and things that need the "
                 "signer's approval before being said (prices, payments, bookings, anything conditional like "
-                f"'tell me the total first').\nNote: {note!r}", NoteParse, timeout=4.0)
+                f"'tell me the total first').\nNote: {note!r}", NoteParse, timeout=4.0, job="note_parser")
         except Exception as e:
             log.warning("note parser fallback: %s", e)
             return await self.fallback.parse_note(note)
@@ -470,7 +482,7 @@ class GeminiBrain:
                 f"Contact: {context.get('contact_name')} ({'family/friend' if context.get('casual') else 'business'})\n"
                 f"Note facts: {json.dumps(context.get('note_facts', []))}\n"
                 f"Recent lines: {json.dumps(context.get('recent', [])[-6:])}\n"
-                f"Caller just said: {caller_text!r}", TurnAnalysis, timeout=2.0)
+                f"Caller just said: {caller_text!r}", TurnAnalysis, timeout=2.0, job="turn_analyzer")
         except Exception as e:
             log.warning("turn analyzer fallback: %s", e)
             return rules
@@ -493,12 +505,12 @@ class GeminiBrain:
             r = await self._json(
                 "Write what the signer means as one sentence to be spoken out loud on the phone.\n"
                 f"Signs (ASL gloss, in order): {' '.join(signs)}\n"
-                f"Facial tone: {tone} (warm = upbeat, question = ask it as a question, concerned = gentle)\n"
+                f"Tone: {tone} (warm = upbeat, question = ask it as a question, concerned = gentle)\n"
                 f"Talking to: {context.get('contact_name')} ({'family/friend, casual' if context.get('casual') else 'business, polite'})\n"
                 f"Caller just said: {caller_text!r}\n"
                 f"Note facts you may use: {json.dumps([f['value'] for f in context.get('note_facts', [])])}\n"
                 "Example: signs YES SUNDAY COME, casual -> \"Yeah! I'll be there Sunday.\"",
-                Reply, temperature=0.5, timeout=1.5)
+                Reply, temperature=0.5, timeout=1.5, job="reply_writer", model=self.reply_model)
             return r.sentence.strip()
         except Exception as e:
             log.warning("reply writer fallback: %s", e)
@@ -509,7 +521,7 @@ class GeminiBrain:
             r = await self._json(
                 "From this phone call transcript, give 2-3 short 'worth remembering' points (plans, times, "
                 "prices, what was agreed). Only facts stated in the transcript.\n"
-                + json.dumps(transcript), Recap, timeout=5.0)
+                + json.dumps(transcript), Recap, timeout=5.0, job="recap")
             return r.points[:3]
         except Exception as e:
             log.warning("recap fallback: %s", e)

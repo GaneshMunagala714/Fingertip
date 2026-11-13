@@ -124,7 +124,12 @@ async def send_draft(call: Call) -> dict:
     if not d:
         return {"ok": False, "reason": "no draft"}
     call.approved.append(d.text)
-    return await call.c.send(d.text, "draft", d.signs, d.id)
+    return await call.c.send(d.text, "draft", d.signs, d.id, hash=d.hash)
+
+
+async def confirm_yes(call: Call) -> dict:
+    sheet = confirms(call)[-1]
+    return await call.c.confirm("yes", sheet["hash"])
 
 
 async def tap_chip(call: Call, i: int = 0) -> tuple[str, dict]:
@@ -357,7 +362,7 @@ async def c_rest_price(brain):
     opened = confirms(call)
     spoke_before = any(t == d.text for _, _, t in spoken(call))
     summary_ok = opened and "$23.40" in opened[-1]["summary"]
-    await call.c.confirm("yes")
+    await confirm_yes(call)
     await wait(10)          # queued behind the intro
     spoke_after = any(t == d.text for _, _, t in spoken(call))
     return call, {"level confirm": (d.level == CONFIRM, d.level),
@@ -474,6 +479,42 @@ async def c_pharm_price(brain):
     return call, {"confirm": (r.get("confirm") is True, f"{d.text!r} {r}")}
 
 
+@case("Restaurant order", "approval goes stale on new terms")
+async def c_stale_terms(brain):
+    call = await make_call(brain, PIZZA, "outgoing", ORDER_NOTE)
+    await caller(call, "Your total is $23.40. Want me to put it in?")
+    await tap_chip(call, 0)
+    old = confirms(call)[-1]["hash"]
+    await caller(call, "Oh wait, sorry, it's actually $26.10.")      # new terms while the sheet is open
+    r = await call.c.confirm("yes", old)
+    spoke = [t for _, k, t in spoken(call) if k == "reply"]
+    reopened = confirms(call)[-1]
+    return call, {"old approval rejected": (r.get("ok") is False and r.get("stale"), str(r)),
+                  "nothing spoken": (not spoke, str(spoke)),
+                  "sheet shows new amount": ("$26.10" in reopened["summary"], reopened["summary"])}
+
+
+@case("Call Mom", "edited draft needs its own hash")
+async def c_stale_edit(brain):
+    call = await make_call(brain, MOM, "incoming")
+    await caller(call, "Are you coming Sunday?")
+    d = await sign(call, ["YES", "SUNDAY", "COME"])
+    r = await call.c.send(d.text + " Love you!", "draft", d.signs, d.id, hash=d.hash)
+    no_hash = await call.c.send(d.text, "draft", d.signs, d.id, hash=None)
+    return call, {"edited text rejected": (r.get("stale") is True, str(r)),
+                  "missing hash rejected": (no_hash.get("ok") is False, str(no_hash))}
+
+
+@case("Call a friend", "hedge guard")
+async def c_hedge(brain):
+    call = await make_call(brain, JAY, "outgoing")
+    await caller(call, "Are you coming to the game Saturday?")
+    d1 = await sign(call, ["YES", "COME"], writer_says="I might come, probably.")
+    d2 = await sign(call, ["MAYBE", "COME"], writer_says="Yeah, I'll be there!")
+    return call, {"unsigned hedge blocked/fixed": (d1.blocked or not guards.hedge_guard(d1.text, []).problems, d1.text),
+                  "signed MAYBE kept": (d2.blocked or "maybe" in d2.text.lower(), d2.text)}
+
+
 # ------------------------------------------------------------------ guard unit cases
 
 GUARD_UNITS = [
@@ -490,6 +531,10 @@ GUARD_UNITS = [
     ("negation", "Sorry, I can't make it.", ["NO", "COME"], True),
     ("negation", "Sure, I'll come.", ["NO", "COME"], False),
     ("negation", "I don't want that.", ["DON'T", "WANT"], True),
+    ("hedge", "I might come.", ["COME"], False),
+    ("hedge", "Maybe, I'll see.", ["MAYBE", "COME"], True),
+    ("hedge", "Yes, I'll come.", ["MAYBE", "COME"], False),
+    ("hedge", "Yes, I'll come.", ["YES", "COME"], True),
 ]
 
 
@@ -498,6 +543,8 @@ def run_guard_units() -> list[tuple[str, str, bool, bool]]:
     for kind, sentence, src, expect in GUARD_UNITS:
         if kind == "fact":
             got = guards.fact_guard(sentence, src).ok
+        elif kind == "hedge":
+            got = guards.hedge_guard(sentence, src).ok
         else:
             got = guards.negation_guard(sentence, src).ok
         rows.append((kind, sentence, expect, got))
@@ -516,6 +563,13 @@ def run_guard_units() -> list[tuple[str, str, bool, bool]]:
     d2 = guards.DuplicateGuard(10, clock=lambda: 100.0)
     rows.append(("duplicate", "same line at 5 s blocked", True, a and not b))
     rows.append(("duplicate", "fresh guard allows", True, d2.check("x")))
+    h1 = guards.approval_hash("Yes, that's fine.", "Your total is $23.40")
+    rows.append(("approval", "same text + same terms -> same hash", True,
+                 h1 == guards.approval_hash("Yes, that's fine.", "Your total is $23.40")))
+    rows.append(("approval", "new caller amount -> new hash", True,
+                 h1 != guards.approval_hash("Yes, that's fine.", "Actually it's $26.10")))
+    rows.append(("approval", "edited text -> new hash", True,
+                 h1 != guards.approval_hash("Yes, that's fine!", "Your total is $23.40")))
     return rows
 
 

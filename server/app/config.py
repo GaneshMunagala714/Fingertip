@@ -33,8 +33,13 @@ class Settings:
     language: str = field(default_factory=lambda: os.getenv("CALL_LANGUAGE", "en-US"))
 
     gemini_api_key: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY", ""))
-    # Set from the current Gemini docs. The server checks it exists at startup.
-    gemini_model: str = field(default_factory=lambda: os.getenv("GEMINI_MODEL", ""))
+    # Turn analyzer, note parser, reply writer. The server checks the model exists at startup.
+    gemini_model: str = field(default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite"))
+    # Switch reply writing to gemini-3.8-flash only if reply quality tests fail.
+    gemini_reply_model: str = field(default_factory=lambda: os.getenv("GEMINI_REPLY_MODEL", ""))
+    gemini_thinking_level: str = field(default_factory=lambda: os.getenv("GEMINI_THINKING_LEVEL", "minimal"))
+    # Automatic face-to-tone is experimental: furrowed brows also mark ASL wh-questions.
+    face_tone: bool = field(default_factory=lambda: _bool("FACE_TONE", False))
     gemini_timeout_s: float = field(default_factory=lambda: float(os.getenv("GEMINI_TIMEOUT_S", "2.5")))
 
     # Optional shared key for the signer app (?key=... once, kept in the browser).
@@ -58,12 +63,17 @@ class Settings:
             return "wss://" + self.public_url[len("https://"):]
         return "ws://" + self.public_url[len("http://"):]
 
+    @property
+    def expressive_tts(self) -> bool:
+        """ElevenLabs v3/v4: no SSML, no speed; natural-language audio tags like [warmly] go in the text."""
+        return self.tts_model.lower() in {"v3", "v4"}
+
     def voice_string(self, voice_id: str | None) -> str:
         vid = voice_id or self.default_voice_id
         parts = [vid]
         if self.tts_model:
             parts.append(self.tts_model)
-        if self.tts_voice_settings:
+        if self.tts_voice_settings and not self.expressive_tts:
             parts.append(self.tts_voice_settings)
         return "-".join(parts)
 

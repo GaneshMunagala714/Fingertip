@@ -82,7 +82,7 @@ def test_incoming_call_full_loop():
                 d = c.post(f"/api/calls/{sid}/signs", json={"signs": ["YES", "SUNDAY", "COME"], "tone": "warm"}).json()
                 assert "Sunday" in d["draft"]["text"] and d["draft"]["level"] == "quick"
                 r = c.post(f"/api/calls/{sid}/send", json={"text": d["draft"]["text"], "source": "draft",
-                                                           "draft_id": d["draft"]["id"]}).json()
+                                                           "draft_id": d["draft"]["id"], "hash": d["draft"]["hash"]}).json()
                 assert r["ok"]
                 spoken = json.loads(relayws.receive_text())
                 assert spoken["token"] == d["draft"]["text"]
@@ -127,7 +127,9 @@ def test_outgoing_call_with_confirm():
             assert r.get("confirm") is True
             conf, _ = recv_until(appws, lambda m: m["type"] == "confirm")
             assert "$23.40" in conf["summary"]
-            assert c.post(f"/api/calls/{sid}/confirm", json={"decision": "yes"}).json()["ok"]
+            assert c.post(f"/api/calls/{sid}/confirm", json={"decision": "yes"}).json()["ok"] is False   # no hash
+            conf, _ = recv_until(appws, lambda m: m["type"] == "confirm")
+            assert c.post(f"/api/calls/{sid}/confirm", json={"decision": "yes", "hash": conf["hash"]}).json()["ok"]
 
 
 def test_relay_rejects_wrong_call_sid():
@@ -147,3 +149,78 @@ def test_bad_number_plain_error():
     with TestClient(app) as c:
         r = c.post("/api/calls", json={"number": "12"})
         assert r.status_code == 400 and "number" in r.json()["detail"]
+
+
+def test_interrupt_keeps_the_rest():
+    import asyncio
+    from app.ai import RulesBrain
+    from app.controller import Contact, Controller
+
+    async def go():
+        c = Controller("t", Contact(name="Mom", knows_sign=True), RulesBrain(), direction="incoming", time_scale=0.01)
+        sent = []
+
+        async def s(m):
+            sent.append(m)
+        await c.attach_relay(s, {"callSid": "CA"})
+        await asyncio.sleep(0.05)
+        await c.on_prompt("Are you coming Sunday?", True)
+        await c.send("Yeah! I'll be there Sunday. What should I bring?", "typed")
+        await c.on_interrupt("Yeah! I'll be there")
+        line = [l for l in c.lines if l.who == "me"][-1]
+        assert line.status == "interrupted" and line.heard == "Yeah! I'll be there"
+        assert c.draft.text == "Sunday. What should I bring?"
+        r = await c.send(c.draft.text, "draft", draft_id=c.draft.id, hash=c.draft.hash)
+        assert r["ok"]
+    asyncio.run(go())
+
+
+def test_note_parse_endpoint():
+    with TestClient(app) as c:
+        r = c.post("/api/note/parse", json={"note": "order garlic bread and wings, name Shruti, tell me the total first"})
+        j = r.json()
+        assert {f["key"] for f in j["auto_facts"]} == {"order", "name"} and j["needs_confirmation"]
+
+
+def test_relay_handshake_signature():
+    """With validation on, the ConversationRelay socket needs a valid X-Twilio-Signature."""
+    from twilio.request_validator import RequestValidator
+    from app import config
+    config.settings.validate_twilio_signature = True
+    config.settings.twilio_auth_token = "secret-token"
+    try:
+        with TestClient(app) as c:
+            config.settings.validate_twilio_signature = False
+            sid = c.post("/api/calls", json={"number": "4135550198"}).json()["sid"]
+            config.settings.validate_twilio_signature = True
+            try:
+                with c.websocket_connect(f"/ws/relay/{sid}") as ws:
+                    ws.receive_text()
+                raise AssertionError("unsigned handshake accepted")
+            except AssertionError:
+                raise
+            except Exception:
+                pass
+            sig = RequestValidator("secret-token").compute_signature(f"wss://s2s.test/ws/relay/{sid}", {})
+            with c.websocket_connect(f"/ws/relay/{sid}", headers={"X-Twilio-Signature": sig}) as ws:
+                ws.send_text(json.dumps({"type": "setup", "callSid": sessions[sid].call_sid}))
+    finally:
+        config.settings.validate_twilio_signature = False
+        config.settings.twilio_auth_token = ""
+
+
+def test_voice_string_v4_and_tags():
+    from app import config, relay
+    s = config.settings
+    old = (s.tts_model, s.tts_voice_settings)
+    try:
+        s.tts_model, s.tts_voice_settings = "v4", "1.1_0.5_0.8"
+        assert s.voice_string("VID") == "VID-v4"            # no speed/settings with v4
+        assert relay.spoken_token("Yeah!", "warm") == "[warmly] Yeah!"
+        s.tts_model = "flash_v2_5"
+        assert s.voice_string("VID") == "VID-flash_v2_5-1.1_0.5_0.8"
+        assert relay.spoken_token("Yeah!", "warm") == "Yeah!"
+        twiml = relay.relay_twiml("x")
+        assert 'partialPrompts="true"' in twiml and 'interruptible="any"' in twiml and 'echoPromptFiltering="true"' in twiml
+    finally:
+        s.tts_model, s.tts_voice_settings = old

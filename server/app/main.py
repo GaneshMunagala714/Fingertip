@@ -69,7 +69,8 @@ class Hub:
         for c in self.contacts:
             if digits and re.sub(r"\D", "", c.get("number", ""))[-10:] == digits:
                 return Contact(id=c.get("id", ""), name=c.get("name", number), number=number,
-                               knows_sign=bool(c.get("knows_sign")), kind=c.get("kind", "person"))
+                               knows_sign=bool(c.get("knows_sign")), kind=c.get("kind", "person"),
+                               style=c.get("style", ""))
         return Contact(name=_pretty(number), number=number, kind="person", knows_sign=False)
 
 
@@ -265,10 +266,24 @@ async def relay_ended(sid: str, request: Request) -> Response:
 
 # ---------------------------------------------------------------- ConversationRelay socket
 
+def relay_handshake_ok(ws: WebSocket, sid: str) -> bool:
+    """Twilio signs the ConversationRelay WebSocket handshake with X-Twilio-Signature over the URL."""
+    if not settings.validate_twilio_signature:
+        return True
+    sig = ws.headers.get("x-twilio-signature", "")
+    validator = RequestValidator(settings.twilio_auth_token)
+    q = f"?{ws.url.query}" if ws.url.query else ""
+    for url in (f"{settings.ws_base}/ws/relay/{sid}{q}", f"{settings.public_url}/ws/relay/{sid}{q}"):
+        if sig and validator.validate(url, {}, sig):
+            return True
+    return False
+
+
 @app.websocket("/ws/relay/{sid}")
 async def ws_relay(ws: WebSocket, sid: str) -> None:
     c = sessions.get(sid)
-    if not c:
+    if not c or not relay_handshake_ok(ws, sid):
+        log.warning("relay handshake rejected for %s", sid)
         await ws.close(code=1008)
         return
     await ws.accept()
@@ -340,6 +355,7 @@ class DialIn(BaseModel):
     contact_id: str = ""
     knows_sign: bool = False
     kind: str = "person"
+    style: str = ""
     note: str = ""
 
 
@@ -360,7 +376,7 @@ async def dial(body: DialIn, key: Optional[str] = None) -> dict:
     check_key(key)
     to = _e164(body.number)
     contact = Contact(id=body.contact_id, name=body.name or _pretty(to), number=to,
-                      knows_sign=body.knows_sign, kind=body.kind)
+                      knows_sign=body.knows_sign, kind=body.kind, style=body.style)
     c = new_session(contact, "outgoing", note=body.note)
     await c.load_note()
     try:
@@ -372,7 +388,8 @@ async def dial(body: DialIn, key: Optional[str] = None) -> dict:
         raise HTTPException(502, "Couldn't start the call. Check the number and try again.") from e
     by_call_sid[c.call_sid] = c.id
     await hub.broadcast(c.snapshot())
-    return {"sid": c.id, "note_facts": c.note_facts, "note_confirm": c.note_confirm}
+    return {"sid": c.id, "note_facts": c.note_facts, "note_confirm": c.note_confirm,
+            "first_words": None if c.intro_done else c.intro_text}
 
 
 @app.post("/api/calls/{sid}/answer")
@@ -420,42 +437,73 @@ async def hangup(sid: str, key: Optional[str] = None) -> dict:
     return {"ok": True, "recap": c.recap}
 
 
+class NoteIn(BaseModel):
+    note: str
+
+
+@app.post("/api/note/parse")
+async def parse_note(body: NoteIn, key: Optional[str] = None) -> dict:
+    """Live preview on the errand-note screen: what can be said vs. checked first."""
+    check_key(key)
+    p = await state["brain"].parse_note(body.note[:1000])
+    return {"auto_facts": [f.model_dump() for f in p.auto_facts], "needs_confirmation": p.needs_confirmation}
+
+
+@app.post("/api/calls/{sid}/draft/clear")
+async def clear_draft(sid: str, key: Optional[str] = None) -> dict:
+    check_key(key)
+    await get_session(sid).clear_draft()
+    return {"ok": True}
+
+
 class SendIn(BaseModel):
     text: str
     source: str = "typed"           # typed | chip | draft
     draft_id: Optional[str] = None
     signs: list[str] = []
     force: bool = False
+    hash: Optional[str] = None      # required for source=draft: the hash shown with that draft
+    tone: str = ""
 
 
 @app.post("/api/calls/{sid}/send")
 async def send(sid: str, body: SendIn, key: Optional[str] = None) -> dict:
     check_key(key)
     c = get_session(sid)
-    return await c.send(body.text, body.source, body.signs, body.draft_id, body.force)
+    return await c.send(body.text, body.source, body.signs, body.draft_id, body.force, body.hash, body.tone)
 
 
 class SignsIn(BaseModel):
     signs: list[str]
-    tone: str = "neutral"
+    tone: str = ""                  # "" = from the contact's talk style
+    tone_source: str = "signer"     # signer | face (face is ignored unless FACE_TONE=true)
 
 
 @app.post("/api/calls/{sid}/signs")
 async def signs(sid: str, body: SignsIn, key: Optional[str] = None) -> dict:
     check_key(key)
     c = get_session(sid)
-    d = await c.draft_from_signs(body.signs, body.tone)
+    tone = body.tone if (body.tone_source != "face" or settings.face_tone) else ""
+    d = await c.draft_from_signs(body.signs, tone)
     return {"draft": asdict(d)}
 
 
 class ConfirmIn(BaseModel):
     decision: str                   # yes | change | later
+    hash: Optional[str] = None      # required for yes
 
 
 @app.post("/api/calls/{sid}/confirm")
 async def confirm(sid: str, body: ConfirmIn, key: Optional[str] = None) -> dict:
     check_key(key)
-    return await get_session(sid).confirm(body.decision)
+    return await get_session(sid).confirm(body.decision, body.hash)
+
+
+@app.post("/api/calls/{sid}/stop")
+async def stop(sid: str, key: Optional[str] = None) -> dict:
+    check_key(key)
+    await get_session(sid).stop_speaking()
+    return {"ok": True}
 
 
 @app.exception_handler(Exception)

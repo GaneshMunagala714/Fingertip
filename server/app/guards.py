@@ -232,6 +232,42 @@ def first_amount(text: str) -> str:
     return ""
 
 
+_HEDGE_RE = re.compile(r"\b(might|maybe|probably|perhaps|possibly|not sure)\b", re.I)
+
+
+def hedge_guard(sentence: str, signs: list[str]) -> GuardResult:
+    """'might/maybe/probably' in the sentence requires MAYBE in the signs, and vice versa."""
+    signed = any(s.upper() == "MAYBE" for s in signs)
+    said = bool(_HEDGE_RE.search(sentence))
+    if said and not signed:
+        return GuardResult(False, ["sounds unsure, but you didn't sign MAYBE"])
+    if signed and not said:
+        return GuardResult(False, ["you signed MAYBE, but the sentence sounds certain"])
+    return GuardResult(True)
+
+
+def terms(*texts: str) -> list[str]:
+    """The deal terms in play: amounts, numbers, days, times."""
+    out: set[str] = set()
+    for t in texts:
+        if not t:
+            continue
+        out |= extract_numbers(t, include_ambiguous=False) | extract_days(t)
+        a = first_amount(t)
+        if a:
+            out.add(a)
+    return sorted(out)
+
+
+def approval_hash(text: str, caller_line: str) -> str:
+    """Binds an approval to the exact words AND the terms currently on the table.
+    An edit, or new terms from the caller, gives a different hash."""
+    import hashlib
+
+    basis = text.strip() + "\x1f" + ",".join(terms(text, caller_line))
+    return hashlib.sha256(basis.encode()).hexdigest()[:20]
+
+
 def normalize_line(text: str) -> str:
     return re.sub(r"[^a-z0-9 ]", "", text.lower()).strip()
 

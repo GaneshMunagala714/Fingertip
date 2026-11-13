@@ -28,9 +28,9 @@ def relay_twiml(session_id: str, voice_id: str | None = None) -> str:
         language=settings.language,
         tts_provider=settings.tts_provider,
         voice=settings.voice_string(voice_id),
-        partial_prompts="true",          # stream the caller's words as they speak
-        interruptible="speech",          # caller can talk over our voice
-        welcome_greeting_interruptible="speech",
+        partial_prompts="true",          # defaults to false; we need live partial captions
+        interruptible="any",             # caller can talk over our voice (Twilio default, set explicitly)
+        echo_prompt_filtering="true",    # drop transcripts of our own TTS echo (best with ElevenLabs)
         dtmf_detection="true",
         application_reconnect="true",    # Twilio re-dials our socket if it drops
         elevenlabs_text_normalization="on",
@@ -77,8 +77,18 @@ def parse(message: str) -> RelayEvent:
     return RelayEvent(type=str(data.get("type", "")), raw=data)
 
 
-def text_message(text: str, *, interruptible: bool = True, preemptible: bool = False) -> str:
-    """Send one complete line to be spoken."""
+TONE_TAGS = {"warm": "[warmly]", "concerned": "[gently]"}
+
+
+def spoken_token(text: str, tone: str = "neutral") -> str:
+    """With expressive ElevenLabs models, prefix a natural-language audio tag. Otherwise plain text."""
+    tag = TONE_TAGS.get(tone, "") if settings.expressive_tts else ""
+    return f"{tag} {text}" if tag else text
+
+
+def text_message(text: str, *, interruptible: bool = True, preemptible: bool = True) -> str:
+    """Send one complete line to be spoken. The controller only ever has one line playing,
+    so preemptible lets a Stop (or the next line) cut it off."""
     return json.dumps({
         "type": "text",
         "token": text,

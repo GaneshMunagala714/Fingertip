@@ -29,7 +29,9 @@ ON_HOLD, ENDED = "ON_HOLD", "ENDED"
 
 AUTO, QUICK, CONFIRM = "auto", "quick", "confirm"
 
-INTRO = "Hey! Quick heads-up, I'm deaf, so an app's voicing what I sign. Bear with me a sec."
+INTRO_BASE = "Hey! Quick heads-up, I'm deaf, so an app's voicing what I sign."
+INTRO = INTRO_BASE + " Bear with me a sec."
+INTRO_ORDER = INTRO_BASE + " I'd like to place a pickup order."
 FILLERS_1 = ["Mm, one sec...", "Mm, just a sec...", "Okay, one sec..."]
 FILLERS_2 = ["Sorry, just a moment...", "Sorry, one more second..."]
 PRESENCE = ["Yeah, still here!", "Yep, I'm here! One sec."]
@@ -51,9 +53,12 @@ class Contact:
     number: str = ""
     knows_sign: bool = False
     kind: str = "person"          # person | business
+    style: str = ""               # casual | polite ("" = casual for people who know I sign)
 
     @property
     def casual(self) -> bool:
+        if self.style:
+            return self.style == "casual"
         return self.kind == "person" and self.knows_sign
 
 
@@ -66,6 +71,7 @@ class Line:
     level: str = ""
     kind: str = ""                # intro | filler | presence | repeat | fact | reply
     unclear: bool = False
+    heard: str = ""               # when cut off: the part the caller heard
     ts: float = field(default_factory=time.time)
 
 
@@ -80,6 +86,7 @@ class Draft:
     problems: list[str] = field(default_factory=list)
     blocked: bool = False
     tone: str = "neutral"
+    hash: str = ""                # approval is bound to this (exact text + current terms)
 
 
 Emit = Callable[[dict], Awaitable[None]]
@@ -141,6 +148,24 @@ class Controller:
             self.state = s
             await self.emit({"type": "state", "state": s})
 
+    @property
+    def intro_text(self) -> str:
+        if any(f["key"] == "order" for f in self.note_facts):
+            return INTRO_ORDER
+        return INTRO
+
+    @property
+    def default_tone(self) -> str:
+        """MVP tone: from the contact's talk style (or what the signer picks)."""
+        return "warm" if self.contact.casual else "neutral"
+
+    def _seal(self, d: Draft) -> Draft:
+        d.hash = guards.approval_hash(d.text, self._last_caller_text)
+        return d
+
+    def _fresh(self, d: Draft) -> bool:
+        return bool(d.hash) and d.hash == guards.approval_hash(d.text, self._last_caller_text)
+
     def context(self) -> dict:
         return {
             "contact_name": self.contact.name,
@@ -191,7 +216,7 @@ class Controller:
         await self._set_state(CONNECTED)
         if self.direction == "incoming":
             if not self.intro_done:
-                await self._auto(INTRO, "intro")
+                await self._auto(self.intro_text, "intro")
                 self.intro_done = True
             elif self.contact.casual:
                 await self._auto("Hey!", "greeting")
@@ -233,7 +258,7 @@ class Controller:
         # Outgoing calls: first thing they say gets the intro.
         if not self.intro_done:
             self.intro_done = True
-            await self._auto(INTRO, "intro")
+            await self._auto(self.intro_text, "intro")
 
         a = await self.brain.analyze_turn(text, self.context())
         if turn != self._turn_seq or self.state == ENDED:
@@ -274,8 +299,8 @@ class Controller:
                 if not needs:
                     await self._auto(fact["say"], "fact")
                     return
-                self.draft = Draft(id=_nid("d"), text=fact["say"], source="fact", level=CONFIRM,
-                                   confirm_summary=summary)
+                self.draft = self._seal(Draft(id=_nid("d"), text=fact["say"], source="fact", level=CONFIRM,
+                                              confirm_summary=summary))
                 await self._open_confirm()
                 return
         if qt == "emergency":
@@ -312,10 +337,22 @@ class Controller:
             self._speak_task = None
         self._queue.clear()
         if self._speaking:
-            self._speaking.status = "interrupted"
-            await self._line(self._speaking, new=False)
-            if self._speaking_draft:
-                self.draft = self._speaking_draft
+            sp = self._speaking
+            sp.status = "interrupted"
+            heard = (utterance or "").strip()
+            if heard and sp.text.startswith(heard):
+                sp.heard = heard
+            await self._line(sp, new=False)
+            if self._speaking_draft or sp.kind == "reply":
+                rest = sp.text[len(sp.heard):].strip(" ,.") if sp.heard else sp.text
+                # Keep the unsaid part as the draft: the signer can say the rest or drop it.
+                self.draft = Draft(id=_nid("d"), text=rest[:1].upper() + rest[1:] if rest else sp.text,
+                                   source="rest", level=QUICK)
+                if self._speaking_draft:
+                    self.draft.tone = self._speaking_draft.tone
+                self._seal(self.draft)
+                self.dup._recent.pop(guards.normalize_line(self.draft.text), None)
+                self.dup._recent.pop(guards.normalize_line(sp.text), None)
                 await self.emit({"type": "draft", "draft": asdict(self.draft)})
         self._speaking = None
         self._speaking_draft = None
@@ -324,9 +361,11 @@ class Controller:
 
     # ------------------------------------------------------------ signer side
 
-    async def draft_from_signs(self, signs: list[str], tone: str = "neutral", signs_end_t: Optional[float] = None
+    async def draft_from_signs(self, signs: list[str], tone: str = "", signs_end_t: Optional[float] = None
                                ) -> Draft:
+        """Called as signs arrive, so the draft is ready (and sealed) before the signer taps Send."""
         t0 = signs_end_t or time.perf_counter()
+        tone = tone or self.default_tone
         caller = self._last_caller_text
         sentence = await self.brain.write_reply(signs, caller, self.context(), tone)
         d = self._check_draft(sentence, signs, source="signs", tone=tone)
@@ -349,7 +388,8 @@ class Controller:
         if source == "signs":
             fg = guards.fact_guard(sentence, [guards.gloss_text(signs), caller, self.note, chips])
             ng = guards.negation_guard(sentence, signs)
-            d.problems = fg.problems + ng.problems
+            hg = guards.hedge_guard(sentence, signs)
+            d.problems = fg.problems + ng.problems + hg.problems
             d.blocked = bool(d.problems)
         flag = bool(self.analysis and self.analysis.involves_commitment)
         needs, summary = guards.commitment_guard(sentence, caller, flag)
@@ -359,21 +399,28 @@ class Controller:
                 needs, summary = True, "This shares something that isn't in your note"
         if needs:
             d.level, d.confirm_summary = CONFIRM, summary
-        return d
+        return self._seal(d)
 
     async def send(self, text: str, source: str = "typed", signs: Optional[list[str]] = None,
-                   draft_id: Optional[str] = None, force: bool = False) -> dict:
-        """Signer tapped Send (typed text, a chip, or the signed draft)."""
+                   draft_id: Optional[str] = None, force: bool = False, hash: Optional[str] = None,
+                   tone: str = "") -> dict:
+        """Signer tapped Send. Typed text and chips already are the reply: no model call, just guards.
+        A signed draft must present the hash it was shown with."""
         if self.state == ENDED:
             return {"ok": False, "reason": "The call has ended."}
         text = (text or "").strip()
         if not text:
             return {"ok": False, "reason": "Nothing to send."}
-        if source == "draft" and self.draft and (draft_id is None or draft_id == self.draft.id) \
-                and text == self.draft.text:
+        if source == "draft":
             d = self.draft
+            if not d or d.text != text or not hash or hash != d.hash or not self._fresh(d):
+                if d:
+                    d = self._check_draft(d.text, d.signs, source="signs" if d.signs else d.source, tone=d.tone)
+                    self.draft = d
+                    await self.emit({"type": "draft", "draft": asdict(d)})
+                return {"ok": False, "stale": True, "reason": "That reply changed. Check it and send again."}
         else:
-            d = self._check_draft(text, signs or [], source="signs" if (signs and source == "draft") else source)
+            d = self._check_draft(text, [], source=source, tone=tone or self.default_tone)
         if d.blocked and not force:
             self.draft = d
             await self.emit({"type": "draft", "draft": asdict(d)})
@@ -391,13 +438,21 @@ class Controller:
         d = self.draft
         assert d
         await self._set_state(CONFIRMING)
-        await self.emit({"type": "confirm", "draft": asdict(d),
+        await self.emit({"type": "confirm", "draft": asdict(d), "hash": d.hash,
                          "summary": d.confirm_summary, "sentence": d.text})
 
-    async def confirm(self, decision: str) -> dict:
+    async def confirm(self, decision: str, hash: Optional[str] = None) -> dict:
         if self.state != CONFIRMING or not self.draft:
             return {"ok": False, "reason": "Nothing to confirm."}
         d = self.draft
+        if decision == "yes" and (not hash or hash != d.hash or not self._fresh(d)):
+            # The words or the terms changed since the sheet opened: show it again with the new terms.
+            self.draft = self._check_draft(d.text, d.signs, source="signs" if d.signs else d.source, tone=d.tone)
+            if self.draft.level != CONFIRM:
+                self.draft.level = CONFIRM
+                self.draft.confirm_summary = d.confirm_summary
+            await self._open_confirm()
+            return {"ok": False, "stale": True, "reason": "The details changed. Check again."}
         await self.emit({"type": "confirm_closed"})
         if decision == "yes":
             await self._speak_draft(d)
@@ -407,13 +462,19 @@ class Controller:
         await self.emit({"type": "draft", "draft": asdict(d), "edit": decision == "change"})
         return {"ok": True}
 
+    async def clear_draft(self) -> None:
+        self.draft = None
+        await self.emit({"type": "draft", "draft": None})
+        if self.state == DRAFT_READY:
+            await self._set_state(self._idle_state())
+
     async def _speak_draft(self, d: Draft) -> None:
         self._sent_this_turn = True
         self._awaiting_reply = False
         self._cancel_fillers()
         self.draft = None
         await self.emit({"type": "draft", "draft": None})
-        await self._speak(d.text, d.level, "reply", draft=d)
+        await self._speak(d.text, d.level, "reply", draft=d, tone=d.tone)
 
     # ------------------------------------------------------------ speaking
 
@@ -426,7 +487,7 @@ class Controller:
         await self._speak(text, AUTO, kind, bypass_dup=bypass_dup)
 
     async def _speak(self, text: str, level: str, kind: str, *, bypass_dup: bool = False,
-                     draft: Optional[Draft] = None) -> bool:
+                     draft: Optional[Draft] = None, tone: str = "neutral") -> bool:
         if self.state == ENDED:
             return False
         if not bypass_dup and not self.dup.check(text):
@@ -439,7 +500,7 @@ class Controller:
             if kind == "filler":
                 return False
             self.dup.mark(text)
-            self._queue.append((text, level, kind, bypass_dup, draft))
+            self._queue.append((text, level, kind, bypass_dup, draft, tone))
             return True
         t0 = time.perf_counter()
         line = Line(id=_nid("m"), who="me", text=text, status="speaking", level=level, kind=kind)
@@ -447,7 +508,7 @@ class Controller:
         self.spoken_log.append((time.monotonic() / self.ts, kind, text))
         if self._relay_send:
             try:
-                await self._relay_send(relay.text_message(text))
+                await self._relay_send(relay.text_message(relay.spoken_token(text, tone)))
             except Exception:
                 log.exception("relay send failed")
                 await self.emit({"type": "error", "message": "Couldn't reach the call. Trying again..."})
@@ -471,11 +532,23 @@ class Controller:
         self._speak_task = None
         await self._line(line, new=False)
         if self._queue:
-            text2, level2, kind2, byp, d2 = self._queue.pop(0)
-            await self._speak(text2, level2, kind2, bypass_dup=True, draft=d2)
+            text2, level2, kind2, byp, d2, tone2 = self._queue.pop(0)
+            await self._speak(text2, level2, kind2, bypass_dup=True, draft=d2, tone=tone2)
             return
         if self.state == SPEAKING:
             await self._set_state(self._idle_state())
+
+    async def stop_speaking(self) -> None:
+        """Signer tapped Stop. Lines are sent preemptible, so a near-silent line cuts the current one."""
+        self._queue.clear()
+        if not self._speaking:
+            return
+        if self._relay_send:
+            try:
+                await self._relay_send(relay.text_message("..."))
+            except Exception:
+                log.exception("stop failed")
+        await self.on_interrupt("")
 
     # ------------------------------------------------------------ fillers
 
