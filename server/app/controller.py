@@ -1,0 +1,538 @@
+"""Deterministic call controller.
+
+States: RINGING -> CONNECTED -> LISTENING <-> CALLER_TALKING -> YOUR_TURN -> DRAFT_READY
+        -> SPEAKING -> LISTENING, plus CONFIRMING, ON_HOLD, ENDED.
+
+The controller decides what is said and when. The AI only writes and
+classifies. Every outgoing line goes through `_speak`, which is the single
+place that talks to Twilio.
+"""
+from __future__ import annotations
+
+import asyncio
+import itertools
+import logging
+import secrets
+import time
+from dataclasses import asdict, dataclass, field
+from typing import Any, Awaitable, Callable, Optional
+
+from . import guards, relay
+from .ai import TurnAnalysis
+from .latency import latency
+
+log = logging.getLogger("controller")
+
+RINGING, CONNECTED, LISTENING, CALLER_TALKING = "RINGING", "CONNECTED", "LISTENING", "CALLER_TALKING"
+YOUR_TURN, DRAFT_READY, SPEAKING, CONFIRMING = "YOUR_TURN", "DRAFT_READY", "SPEAKING", "CONFIRMING"
+ON_HOLD, ENDED = "ON_HOLD", "ENDED"
+
+AUTO, QUICK, CONFIRM = "auto", "quick", "confirm"
+
+INTRO = "Hey! Quick heads-up, I'm deaf, so an app's voicing what I sign. Bear with me a sec."
+FILLERS_1 = ["Mm, one sec...", "Mm, just a sec...", "Okay, one sec..."]
+FILLERS_2 = ["Sorry, just a moment...", "Sorry, one more second..."]
+PRESENCE = ["Yeah, still here!", "Yep, I'm here! One sec."]
+FILLER_1_AFTER_S = 2.0
+FILLER_2_AFTER_S = 8.0
+MAX_FILLERS_PER_TURN = 2
+
+_ids = itertools.count(1)
+
+
+def _nid(prefix: str) -> str:
+    return f"{prefix}{next(_ids)}"
+
+
+@dataclass
+class Contact:
+    id: str = ""
+    name: str = "Unknown"
+    number: str = ""
+    knows_sign: bool = False
+    kind: str = "person"          # person | business
+
+    @property
+    def casual(self) -> bool:
+        return self.kind == "person" and self.knows_sign
+
+
+@dataclass
+class Line:
+    id: str
+    who: str                      # caller | me
+    text: str
+    status: str = "final"         # caller: partial|final ; me: speaking|spoken|interrupted
+    level: str = ""
+    kind: str = ""                # intro | filler | presence | repeat | fact | reply
+    unclear: bool = False
+    ts: float = field(default_factory=time.time)
+
+
+@dataclass
+class Draft:
+    id: str
+    text: str
+    source: str                   # signs | chip | typed | fact
+    signs: list[str] = field(default_factory=list)
+    level: str = QUICK
+    confirm_summary: str = ""
+    problems: list[str] = field(default_factory=list)
+    blocked: bool = False
+    tone: str = "neutral"
+
+
+Emit = Callable[[dict], Awaitable[None]]
+
+
+class Controller:
+    def __init__(self, session_id: str, contact: Contact, brain, *, direction: str, note: str = "",
+                 voice_id: Optional[str] = None, emit: Optional[Emit] = None, time_scale: float = 1.0) -> None:
+        self.id = session_id
+        self.contact = contact
+        self.brain = brain
+        self.direction = direction
+        self.note = note
+        self.voice_id = voice_id
+        self.emit_fn = emit
+        self.ts = time_scale          # tests run timers faster
+
+        self.state = RINGING
+        self.call_sid = ""
+        self.lines: list[Line] = []
+        self.caption: Optional[Line] = None
+        self.draft: Optional[Draft] = None
+        self.analysis: Optional[TurnAnalysis] = None
+        self.note_facts: list[dict] = []
+        self.note_confirm: list[str] = []
+        self.order_given = False
+        self.intro_done = contact.knows_sign
+        self.started_at: Optional[float] = None
+        self.ended_reason = ""
+        self.recap: list[str] = []
+
+        self._relay_send: Optional[Callable[[str], Awaitable[None]]] = None
+        self._queue: list[tuple] = []      # (text, level, kind, bypass_dup, draft)
+        self._speaking: Optional[Line] = None
+        self._speaking_draft: Optional[Draft] = None
+        self._speak_task: Optional[asyncio.Task] = None
+        self._filler_task: Optional[asyncio.Task] = None
+        self._fillers_this_turn = 0
+        self._last_filler = ""
+        self._last_caller_text = ""
+        self._turn_seq = 0
+        self._sent_this_turn = False
+        self._awaiting_reply = False     # caller said something that wants an answer
+        self.dup = guards.DuplicateGuard(10.0, clock=lambda: time.monotonic() / self.ts)
+        self.spoken_log: list[tuple[float, str, str]] = []      # (t, kind, text) for tests
+
+    # ------------------------------------------------------------ plumbing
+
+    async def emit(self, msg: dict) -> None:
+        msg.setdefault("sid", self.id)
+        if self.emit_fn:
+            try:
+                await self.emit_fn(msg)
+            except Exception:  # an app socket problem must never break the call
+                log.exception("emit failed")
+
+    async def _set_state(self, s: str) -> None:
+        if self.state != s:
+            self.state = s
+            await self.emit({"type": "state", "state": s})
+
+    def context(self) -> dict:
+        return {
+            "contact_name": self.contact.name,
+            "casual": self.contact.casual,
+            "note_facts": self.note_facts,
+            "order_given": self.order_given,
+            "recent": [{"who": l.who, "text": l.text} for l in self.lines[-8:]],
+        }
+
+    def snapshot(self) -> dict:
+        return {
+            "type": "snapshot",
+            "sid": self.id,
+            "state": self.state,
+            "direction": self.direction,
+            "contact": asdict(self.contact),
+            "started_at": self.started_at,
+            "lines": [asdict(l) for l in self.lines],
+            "caption": asdict(self.caption) if self.caption else None,
+            "draft": asdict(self.draft) if self.draft else None,
+            "analysis": self.analysis.model_dump() if self.analysis else None,
+            "recap": self.recap,
+            "ended_reason": self.ended_reason,
+        }
+
+    async def _line(self, line: Line, new: bool = True) -> None:
+        if new:
+            self.lines.append(line)
+        await self.emit({"type": "line", "line": asdict(line)})
+
+    # ------------------------------------------------------------ setup
+
+    async def load_note(self) -> None:
+        if not self.note.strip():
+            return
+        parsed = await self.brain.parse_note(self.note)
+        self.note_facts = [f.model_dump() for f in parsed.auto_facts]
+        self.note_confirm = list(parsed.needs_confirmation)
+
+    async def attach_relay(self, send: Callable[[str], Awaitable[None]], setup: dict) -> None:
+        reconnect = self._relay_send is not None or self.state not in (RINGING, CONNECTED)
+        self._relay_send = send
+        self.call_sid = setup.get("callSid", self.call_sid)
+        if reconnect:
+            log.info("%s relay reattached", self.id)
+            return
+        self.started_at = time.time()
+        await self._set_state(CONNECTED)
+        if self.direction == "incoming":
+            if not self.intro_done:
+                await self._auto(INTRO, "intro")
+                self.intro_done = True
+            elif self.contact.casual:
+                await self._auto("Hey!", "greeting")
+        if self.state == CONNECTED:
+            await self._set_state(LISTENING)
+
+    def detach_relay(self) -> None:
+        self._relay_send = None
+
+    # ------------------------------------------------------------ caller side
+
+    async def on_prompt(self, text: str, last: bool) -> None:
+        if self.state == ENDED or not text:
+            return
+        if not last:
+            self._cancel_fillers()
+            if self.caption is None:
+                self.caption = Line(id=_nid("c"), who="caller", text=text, status="partial")
+            else:
+                self.caption.text = text
+            await self.emit({"type": "caption", "line": asdict(self.caption)})
+            if self.state not in (SPEAKING, CONFIRMING, ON_HOLD):
+                await self._set_state(CALLER_TALKING)
+            return
+
+        t0 = time.perf_counter()
+        line = self.caption or Line(id=_nid("c"), who="caller", text=text)
+        line.text, line.status = text, "final"
+        self.caption = None
+        self._last_caller_text = text
+        self._turn_seq += 1
+        turn = self._turn_seq
+        self._fillers_this_turn = 0
+        self._sent_this_turn = False
+        self._awaiting_reply = True
+        await self._line(line)
+        latency.record("caption_emit_ms", (time.perf_counter() - t0) * 1000)
+
+        # Outgoing calls: first thing they say gets the intro.
+        if not self.intro_done:
+            self.intro_done = True
+            await self._auto(INTRO, "intro")
+
+        a = await self.brain.analyze_turn(text, self.context())
+        if turn != self._turn_seq or self.state == ENDED:
+            return          # caller kept talking; a newer turn owns the screen
+        a.chips = self._safe_chips(a.chips, text)
+        self.analysis = a
+        if a.unclear:
+            line.unclear = True
+            await self._line(line, new=False)
+
+        qt = a.question_type
+        if self.state == ON_HOLD and qt != "hold":
+            await self._set_state(LISTENING)
+        if qt in ("hold", "closing"):
+            self._awaiting_reply = qt == "closing"
+        if qt == "hold":
+            await self._set_state(ON_HOLD)
+            await self.emit({"type": "turn", "analysis": a.model_dump()})
+            return
+        if qt == "repeat_request":
+            last_me = next((l for l in reversed(self.lines) if l.who == "me" and l.kind != "filler"), None)
+            if last_me:
+                await self._auto(last_me.text, "repeat", bypass_dup=True)
+                return
+            await self._auto("Sorry, one sec...", "filler")
+            return
+        if qt == "presence_check":
+            await self._auto(self._pick(PRESENCE, ""), "presence")
+            self._schedule_fillers(turn)
+            await self._your_turn(a)
+            return
+        if a.note_fact_key:
+            fact = next((f for f in self.note_facts if f["key"] == a.note_fact_key), None)
+            if fact:
+                needs, summary = guards.commitment_guard(fact["say"], text)
+                if fact["key"] == "order":
+                    self.order_given = True
+                if not needs:
+                    await self._auto(fact["say"], "fact")
+                    return
+                self.draft = Draft(id=_nid("d"), text=fact["say"], source="fact", level=CONFIRM,
+                                   confirm_summary=summary)
+                await self._open_confirm()
+                return
+        if qt == "emergency":
+            await self.emit({"type": "notice", "kind": "emergency",
+                             "text": "Sign2Speak can't handle emergencies. Text 911 if you need help."})
+        await self._your_turn(a)
+        if qt not in ("closing",):
+            self._schedule_fillers(turn)
+
+    def _idle_state(self) -> str:
+        if self.draft and not self.draft.blocked:
+            return DRAFT_READY
+        return YOUR_TURN if self._awaiting_reply else LISTENING
+
+    async def _your_turn(self, a: TurnAnalysis) -> None:
+        if self.state in (SPEAKING, CONFIRMING):
+            await self.emit({"type": "turn", "analysis": a.model_dump()})
+            return
+        await self._set_state(self._idle_state())
+        await self.emit({"type": "turn", "analysis": a.model_dump()})
+
+    def _safe_chips(self, chips: list[str], caller_text: str) -> list[str]:
+        """Chips are AI-written: drop any that invent a fact."""
+        sources = [caller_text, self.note, " ".join(f["value"] for f in self.note_facts)]
+        out = [c for c in chips if guards.fact_guard(c, sources).ok]
+        if not out:
+            out = ["Sorry, could you say that again?"]
+        return out[:4]
+
+    async def on_interrupt(self, utterance: str = "") -> None:
+        """Caller talked over us: stop, keep the draft, go back to listening."""
+        if self._speak_task:
+            self._speak_task.cancel()
+            self._speak_task = None
+        self._queue.clear()
+        if self._speaking:
+            self._speaking.status = "interrupted"
+            await self._line(self._speaking, new=False)
+            if self._speaking_draft:
+                self.draft = self._speaking_draft
+                await self.emit({"type": "draft", "draft": asdict(self.draft)})
+        self._speaking = None
+        self._speaking_draft = None
+        self._cancel_fillers()
+        await self._set_state(CALLER_TALKING)
+
+    # ------------------------------------------------------------ signer side
+
+    async def draft_from_signs(self, signs: list[str], tone: str = "neutral", signs_end_t: Optional[float] = None
+                               ) -> Draft:
+        t0 = signs_end_t or time.perf_counter()
+        caller = self._last_caller_text
+        sentence = await self.brain.write_reply(signs, caller, self.context(), tone)
+        d = self._check_draft(sentence, signs, source="signs", tone=tone)
+        if d.blocked and getattr(self.brain, "fallback", None):
+            alt = await self.brain.fallback.write_reply(signs, caller, self.context(), tone)
+            d2 = self._check_draft(alt, signs, source="signs", tone=tone)
+            if not d2.blocked:
+                d = d2
+        self.draft = d
+        latency.record("draft_ms", (time.perf_counter() - t0) * 1000)
+        if self.state not in (SPEAKING, CONFIRMING, ENDED):
+            await self._set_state(DRAFT_READY)
+        await self.emit({"type": "draft", "draft": asdict(d)})
+        return d
+
+    def _check_draft(self, sentence: str, signs: list[str], *, source: str, tone: str = "neutral") -> Draft:
+        d = Draft(id=_nid("d"), text=sentence, source=source, signs=list(signs), tone=tone)
+        caller = self._last_caller_text
+        chips = " ".join(self.analysis.chips) if self.analysis else ""
+        if source == "signs":
+            fg = guards.fact_guard(sentence, [guards.gloss_text(signs), caller, self.note, chips])
+            ng = guards.negation_guard(sentence, signs)
+            d.problems = fg.problems + ng.problems
+            d.blocked = bool(d.problems)
+        flag = bool(self.analysis and self.analysis.involves_commitment)
+        needs, summary = guards.commitment_guard(sentence, caller, flag)
+        if not needs and self.analysis and self.analysis.question_type == "info_request" and source != "fact":
+            new_facts = guards.fact_guard(sentence, [caller, self.note]).unsupported
+            if new_facts:
+                needs, summary = True, "This shares something that isn't in your note"
+        if needs:
+            d.level, d.confirm_summary = CONFIRM, summary
+        return d
+
+    async def send(self, text: str, source: str = "typed", signs: Optional[list[str]] = None,
+                   draft_id: Optional[str] = None, force: bool = False) -> dict:
+        """Signer tapped Send (typed text, a chip, or the signed draft)."""
+        if self.state == ENDED:
+            return {"ok": False, "reason": "The call has ended."}
+        text = (text or "").strip()
+        if not text:
+            return {"ok": False, "reason": "Nothing to send."}
+        if source == "draft" and self.draft and (draft_id is None or draft_id == self.draft.id) \
+                and text == self.draft.text:
+            d = self.draft
+        else:
+            d = self._check_draft(text, signs or [], source="signs" if (signs and source == "draft") else source)
+        if d.blocked and not force:
+            self.draft = d
+            await self.emit({"type": "draft", "draft": asdict(d)})
+            return {"ok": False, "reason": d.problems[0] if d.problems else "Blocked"}
+        if not force and not self.dup.check(d.text):
+            return {"ok": False, "reason": "You just said that."}
+        self.draft = d
+        if d.level == CONFIRM:
+            await self._open_confirm()
+            return {"ok": True, "confirm": True}
+        await self._speak_draft(d)
+        return {"ok": True}
+
+    async def _open_confirm(self) -> None:
+        d = self.draft
+        assert d
+        await self._set_state(CONFIRMING)
+        await self.emit({"type": "confirm", "draft": asdict(d),
+                         "summary": d.confirm_summary, "sentence": d.text})
+
+    async def confirm(self, decision: str) -> dict:
+        if self.state != CONFIRMING or not self.draft:
+            return {"ok": False, "reason": "Nothing to confirm."}
+        d = self.draft
+        await self.emit({"type": "confirm_closed"})
+        if decision == "yes":
+            await self._speak_draft(d)
+            return {"ok": True}
+        # "change" and "not yet": keep the draft, say nothing.
+        await self._set_state(DRAFT_READY)
+        await self.emit({"type": "draft", "draft": asdict(d), "edit": decision == "change"})
+        return {"ok": True}
+
+    async def _speak_draft(self, d: Draft) -> None:
+        self._sent_this_turn = True
+        self._awaiting_reply = False
+        self._cancel_fillers()
+        self.draft = None
+        await self.emit({"type": "draft", "draft": None})
+        await self._speak(d.text, d.level, "reply", draft=d)
+
+    # ------------------------------------------------------------ speaking
+
+    async def _auto(self, text: str, kind: str, bypass_dup: bool = False) -> None:
+        if kind in ("fact", "repeat"):
+            self._awaiting_reply = False
+        if kind not in ("filler",):
+            self._sent_this_turn = True
+            self._cancel_fillers()
+        await self._speak(text, AUTO, kind, bypass_dup=bypass_dup)
+
+    async def _speak(self, text: str, level: str, kind: str, *, bypass_dup: bool = False,
+                     draft: Optional[Draft] = None) -> bool:
+        if self.state == ENDED:
+            return False
+        if not bypass_dup and not self.dup.check(text):
+            log.info("duplicate blocked: %s", text)
+            return False
+        if self._speaking is not None:
+            # One outgoing line at a time. A new reply replaces a queued reply.
+            if kind == "reply":
+                self._queue = [q for q in self._queue if q[2] != "reply"]
+            if kind == "filler":
+                return False
+            self.dup.mark(text)
+            self._queue.append((text, level, kind, bypass_dup, draft))
+            return True
+        t0 = time.perf_counter()
+        line = Line(id=_nid("m"), who="me", text=text, status="speaking", level=level, kind=kind)
+        self.dup.mark(text)
+        self.spoken_log.append((time.monotonic() / self.ts, kind, text))
+        if self._relay_send:
+            try:
+                await self._relay_send(relay.text_message(text))
+            except Exception:
+                log.exception("relay send failed")
+                await self.emit({"type": "error", "message": "Couldn't reach the call. Trying again..."})
+        latency.record("send_dispatch_ms", (time.perf_counter() - t0) * 1000)
+        self._speaking = line
+        self._speaking_draft = draft
+        await self._line(line)
+        await self._set_state(SPEAKING)
+        self._speak_task = asyncio.create_task(self._finish_speaking(line, text))
+        return True
+
+    async def _finish_speaking(self, line: Line, text: str) -> None:
+        # ConversationRelay doesn't report when playback ends, so estimate it.
+        words = max(1, len(text.split()))
+        await asyncio.sleep((0.35 + words / 2.8) * self.ts)
+        if self._speaking is not line:
+            return
+        line.status = "spoken"
+        self._speaking = None
+        self._speaking_draft = None
+        self._speak_task = None
+        await self._line(line, new=False)
+        if self._queue:
+            text2, level2, kind2, byp, d2 = self._queue.pop(0)
+            await self._speak(text2, level2, kind2, bypass_dup=True, draft=d2)
+            return
+        if self.state == SPEAKING:
+            await self._set_state(self._idle_state())
+
+    # ------------------------------------------------------------ fillers
+
+    def _schedule_fillers(self, turn: int) -> None:
+        self._cancel_fillers()
+        self._filler_task = asyncio.create_task(self._filler_loop(turn))
+
+    def _cancel_fillers(self) -> None:
+        if self._filler_task and self._filler_task is not asyncio.current_task():
+            self._filler_task.cancel()
+        self._filler_task = None
+
+    async def _filler_loop(self, turn: int) -> None:
+        try:
+            start = time.monotonic()
+            for after, bank in ((FILLER_1_AFTER_S, FILLERS_1), (FILLER_2_AFTER_S, FILLERS_2)):
+                wait = after * self.ts - (time.monotonic() - start)
+                if wait > 0:
+                    await asyncio.sleep(wait)
+                if turn != self._turn_seq or self._sent_this_turn:
+                    return
+                if self.state in (CALLER_TALKING, ON_HOLD, ENDED, LISTENING) or self.caption is not None:
+                    return
+                while self._speaking is not None:      # wait for the intro etc. to finish
+                    await asyncio.sleep(0.1 * self.ts)
+                    if turn != self._turn_seq or self._sent_this_turn:
+                        return
+                if self._fillers_this_turn >= MAX_FILLERS_PER_TURN:
+                    return
+                text = self._pick(bank, self._last_filler)
+                self._last_filler = text
+                self._fillers_this_turn += 1
+                await self._speak(text, AUTO, "filler")
+        except asyncio.CancelledError:
+            pass
+
+    @staticmethod
+    def _pick(bank: list[str], avoid: str) -> str:
+        choices = [b for b in bank if b != avoid] or bank
+        return secrets.choice(choices)
+
+    # ------------------------------------------------------------ end
+
+    async def end(self, reason: str = "hangup") -> None:
+        if self.state == ENDED:
+            return
+        self._cancel_fillers()
+        if self._speak_task:
+            self._speak_task.cancel()
+        self._queue.clear()
+        self.ended_reason = reason
+        await self._set_state(ENDED)
+        transcript = [{"who": l.who, "name": self.contact.name if l.who == "caller" else "You", "text": l.text}
+                      for l in self.lines if l.kind not in ("filler",)]
+        try:
+            self.recap = await self.brain.recap(transcript) if transcript else []
+        except Exception:
+            self.recap = []
+        await self.emit({"type": "ended", "reason": reason, "recap": self.recap,
+                         "lines": [asdict(l) for l in self.lines if l.kind != "filler"]})
