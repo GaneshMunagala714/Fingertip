@@ -547,7 +547,7 @@ def run_guard_units() -> list[tuple[str, str, bool, bool]]:
             got = guards.hedge_guard(sentence, src).ok
         else:
             got = guards.negation_guard(sentence, src).ok
-        rows.append((kind, sentence, expect, got))
+        rows.append((kind, f"{sentence} (from: {'; '.join(src)})", expect, got))
     commit = [
         ("Yes, that's fine.", "Your total is $23.40, okay?", True),
         ("Sure, book it.", "", True),
@@ -557,7 +557,7 @@ def run_guard_units() -> list[tuple[str, str, bool, bool]]:
     ]
     for s, c, expect in commit:
         got = guards.commitment_guard(s, c)[0]
-        rows.append(("commitment", f"{s} | caller: {c}", expect, got))
+        rows.append(("commitment", f"{s} (caller: {c or '-'})", expect, got))
     d = guards.DuplicateGuard(10, clock=iter([0, 0, 5, 5, 11]).__next__)
     a = d.check("Hi there"); d.mark("Hi there"); b = d.check("hi there!")
     d2 = guards.DuplicateGuard(10, clock=lambda: 100.0)
@@ -606,7 +606,7 @@ def render(results: dict[str, tuple[list[dict], dict]], units, elapsed: float) -
     out += ["## Guard unit checks", "", f"**{ok_units}/{len(units)} pass**", "",
             "| Guard | Input | Expected allow | Got | |", "|---|---|---|---|---|"]
     for kind, s, e, g in units:
-        out.append(f"| {kind} | {s} | {e} | {g} | {'PASS' if e == g else 'FAIL'} |")
+        out.append(f"| {kind} | {s.replace('|', '/')} | {e} | {g} | {'PASS' if e == g else 'FAIL'} |")
     for label, (rows, totals) in results.items():
         n_ok = sum(r["ok"] for r in rows)
         out += ["", f"## Scripted calls: {label} brain", "", f"**{n_ok}/{len(rows)} cases pass**", "",
@@ -620,8 +620,9 @@ def render(results: dict[str, tuple[list[dict], dict]], units, elapsed: float) -
             out.append(f"| {r['scenario']} | {r['turn']} | {'PASS' if r['ok'] else 'FAIL'} | "
                        f"{r.get('case_checks', '-')} | {note} |")
     out += ["", "## Not measured yet", "",
-            "- Held-out signer accuracy: sign recognition is milestone M3 (not built yet).",
-            "- Live latencies: see `/api/health` on the deployed server after real calls (M5).", ""]
+            "- Held-out signer accuracy and full-phrase success: sign recognition is M3 (plan in model/PLAN.md).",
+            "- Live latencies (caption, draft, first audio after Send): see `/api/health` after real calls (M5).",
+            "- Gemini brain: run `python eval/bench.py --live` once GEMINI_API_KEY is set.", ""]
     return "\n".join(out)
 
 
