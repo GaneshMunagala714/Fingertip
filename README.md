@@ -14,21 +14,37 @@ writing, recap).
 | M0 Skeleton (FastAPI + app, Twilio TwiML, ConversationRelay socket, Docker + Caddy) | Code done; **needs keys and a deploy to pass its live-call test** |
 | M1 Full call loop with typing (incoming, outgoing, captions, fillers, interruptions, hang-up) | Code done; verified end to end with a fake Twilio; **real 2-minute call not yet run** |
 | M2 Turn analyzer, quick replies, reply writer, guards, confirm sheet, note parser | Done. Test bench passes 100% (rules brain): see `eval/results.md` |
-| M3 Sign recognition | Not started. Plan in `model/PLAN.md`. The app's signing views are built and wait for the recognizer |
+| M3 Sign recognition | Built. SignBart-ASL-2730 (2,730 ASL signs) + MediaPipe in the browser. Checked on real ASL Citizen signers (`eval/model_check.md`, `eval/pipeline_check.md`); **held-out teammate not measured yet** (`/#signs-lab` + `eval/sign_eval.py`) |
 | M4 UI polish | All 22 design frames built (`/#gallery`) |
 | M5 In-person, reconnects, latency logging | In-person and reconnect built; latency medians logged at `/api/health`; live numbers not measured yet |
-| M6 Meet extension | Stretch: panel view only |
+| M6 Meet extension | Built (`extension/`). Tested on a stand-in Meet page: chat posting and mic voice work; **not tried on real Google Meet** |
 
 What's honest to say today: phone calls with live captions, typed and quick-reply answers in a
 natural voice, and a conversation-aware assistant that never agrees to money or bookings
 without the signer's tap. Sign recognition: "a tested set of everyday signs, with typing for
-the rest", once M3's evaluation exists. No accuracy or latency figure is claimed until it's
-measured.
+the rest". The numbers below come from public ASL Citizen signers whose clips may be in the
+model's training data; the held-out teammate number comes from `eval/sign_eval.py`.
+
+### Sign recognition: what was measured
+| Check | Result |
+|---|---|
+| 313 real ASL Citizen clips, 62 of our signs, hand setting matched | 96% top-1 within our signs, 85% top-1 of all 2,730 signs |
+| Same, right-hand order only (no setting) | 83% within our signs |
+| Frame rate | 98% at 15 fps, 95% at 10 fps, 93% at 6 fps |
+| Real signer phrases through the app's own segmenter + pipeline | 22/24 signs, 8/12 phrases exact (21/24 at 10 fps) |
+| Server classification time | ~8 ms per sign (CPU) |
+| Browser tracking (headless, 4-core CPU, no GPU) | ~300 ms per frame, in a Web Worker; measure on the phone |
 
 ## How it works
 
 - **Signer app** (`app/`): React + Vite + TypeScript PWA, phone-first. It talks to the server
-  over one WebSocket (events) and REST (actions). The camera stays on the device.
+  over one WebSocket (events) and REST (actions). The camera stays on the device: MediaPipe
+  Holistic runs in a Web Worker and only x/y landmarks are sent, one sign per pause.
+- **Sign model** (`model/`): SignBart-ASL-2730 (ASL Citizen), reimplemented and exported to ONNX
+  (`model/signbart_model.py`), served by `server/app/signs/`. 59-sign active vocabulary in
+  `model/vocab.json`. A dominant-hand setting lives in the Signs lab (`/#signs-lab`).
+- **Meet extension** (`extension/`, stretch): signer-only. Opens the signing panel, posts each
+  sentence to Meet chat, and plays the voice into the Meet mic when `ELEVENLABS_API_KEY` is set.
 - **Backend** (`server/`): one FastAPI service. Twilio webhooks, the ConversationRelay
   WebSocket, a deterministic call controller, guards, and the Gemini jobs.
 - **Telephony**: one Twilio number with ConversationRelay. Twilio does speech-to-text, turn
@@ -62,7 +78,9 @@ cd app && npm ci && npm run build
 cd server && VALIDATE_TWILIO_SIGNATURE=false uvicorn app.main:app --port 8000
 ```
 
-Open http://localhost:8000 for the app, or http://localhost:8000/#gallery for all 22 screens.
+Open http://localhost:8000 for the app, http://localhost:8000/#gallery for all 22 screens,
+http://localhost:8000/#signs-lab for the sign recognition lab (camera, framing, hand setting,
+held-out recordings).
 Without keys the server uses a fake Twilio and the rules brain, so you can click through
 everything but no phone rings.
 
@@ -77,6 +95,24 @@ python eval/bench.py
 ```
 
 Add `--live` to `eval/bench.py` to also run against Gemini (needs `GEMINI_API_KEY`).
+
+Sign recognition checks:
+
+```bash
+cd app && npx vitest run
+```
+
+```bash
+python eval/sign_eval.py --signer "<held-out teammate>"
+```
+
+`model/validate_aslcitizen.py <dir of .pose files>` re-runs the real-signer check (needs
+`pip install pose-format` and ASL Citizen poses from HF `SorensenAI/asl-citizen-poses`).
+
+### Meet extension (stretch)
+Chrome → Extensions → Developer mode → Load unpacked → `extension/`. Set your server URL in
+the extension's options. In Meet, tap **Sign2Speak** (bottom right). Chat selectors in
+`extension/content.js` are best-effort; Meet's markup isn't a public API.
 
 ## Deploy (Vultr)
 
@@ -111,13 +147,18 @@ medians.
 - [ ] Stop cuts off speech (D-012).
 - [ ] Voice IDs and samples picked (D-006).
 - [ ] Gemini model IDs exist (`/api/health` → `gemini.model_ok`).
-- [ ] Demo phone framing on the stand: hands, face and upper body in view.
+- [ ] Demo phone framing on the stand: hands, face and upper body in view (`/#signs-lab` checks it).
+- [ ] Frames per second on the demo phone (`/#signs-lab`); try `?tracker=lite` if it's low.
+- [ ] Dominant-hand setting for the demo signer (`/#signs-lab`).
+- [ ] Held-out teammate: record the demo phrases, run `eval/sign_eval.py`, tune `SIGN_UNSURE_P`.
+- [ ] SignBart has no declared license: fine for the hackathon demo; ask the authors before redistributing.
 
 ## Limits
 - Incoming calls only ring while the app is open (no lock-screen ringing).
 - Single-user demo: every open copy of the app sees every call.
 - English only. No emergency calls, no payment card handling.
-- Sign recognition covers a small tested set of signs; typing and quick replies cover the rest.
+- Sign recognition covers a tested set of everyday signs (59 active); typing and quick replies cover the rest.
+- One sign per pause: the signer pauses briefly between signs. Not continuous ASL.
 
 ## Why this, not existing tools
 Rylo (formerly Nagish) gives Deaf users captioned phone calls, but replies are typed. Google's
@@ -129,7 +170,8 @@ conversation-aware assistant that never agrees to anything without you.
 ```
 app/      signer PWA (React + Vite + TS); /#gallery shows all 22 frames
 server/   FastAPI: Twilio webhooks, ConversationRelay, controller, guards, Gemini, tests
-model/    sign recognition plan (M3), data card, checkpoints and ONNX exports go here
+model/    SignBart reimplementation + ONNX, vocab, real-signer check, plan, data card
+extension/ Google Meet extension (stretch)
 eval/     test bench (bench.py) and results.md
 docs/     architecture
 ```

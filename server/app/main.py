@@ -581,6 +581,34 @@ async def signs_sentence(body: SentenceIn, key: Optional[str] = None) -> dict:
     return {"text": text, "problems": problems}
 
 
+# ---------------------------------------------------------------- Meet extension voice (stretch)
+
+class TtsIn(BaseModel):
+    text: str
+    voice_id: Optional[str] = None
+
+
+@app.post("/api/tts")
+async def tts(body: TtsIn, key: Optional[str] = None) -> Response:
+    """Speech for the Meet extension's mic. Calls don't use this (Twilio speaks there).
+    Without ELEVENLABS_API_KEY the extension posts to Meet chat only."""
+    check_key(key)
+    if not settings.elevenlabs_api_key:
+        raise HTTPException(503, "Voice for Meet isn't set up. Your message still goes to the chat.")
+    import httpx
+    vid = body.voice_id or hub.voice_id or settings.default_voice_id
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.post(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{vid}",
+            params={"output_format": "mp3_44100_128"},
+            headers={"xi-api-key": settings.elevenlabs_api_key, "accept": "audio/mpeg"},
+            json={"text": body.text[:500], "model_id": settings.elevenlabs_model})
+    if r.status_code != 200:
+        log.warning("tts %s: %s", r.status_code, r.text[:200])
+        raise HTTPException(502, "Couldn't make the voice. Your message still goes to the chat.")
+    return Response(r.content, media_type="audio/mpeg")
+
+
 @app.exception_handler(Exception)
 async def plain_errors(request: Request, exc: Exception) -> JSONResponse:
     log.exception("unhandled")

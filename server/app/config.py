@@ -42,6 +42,10 @@ class Settings:
     face_tone: bool = field(default_factory=lambda: _bool("FACE_TONE", False))
     gemini_timeout_s: float = field(default_factory=lambda: float(os.getenv("GEMINI_TIMEOUT_S", "2.5")))
 
+    # Meet extension only (calls use ConversationRelay): direct ElevenLabs TTS for the Meet mic.
+    elevenlabs_api_key: str = field(default_factory=lambda: os.getenv("ELEVENLABS_API_KEY", ""))
+    elevenlabs_model: str = field(default_factory=lambda: os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5"))
+
     # Optional shared key for the signer app (?key=... once, kept in the browser).
     app_access_key: str = field(default_factory=lambda: os.getenv("APP_ACCESS_KEY", ""))
 

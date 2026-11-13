@@ -292,3 +292,4 @@ input, textarea { font: inherit; color: inherit; }
 .lab-self .tag2 { position: absolute; bottom: 6px; left: 0; right: 0; text-align: center; font-size: 12px; font-weight: 700; color: #fff; }
 .lab-self.signing { border-color: var(--red); }
 select.num-input { appearance: auto; }
+.meet-self { position: absolute; inset: 0; width: 100%; height: 100%; right: auto; top: 0; }

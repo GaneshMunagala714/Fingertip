@@ -1,5 +1,9 @@
 # Sign recognition plan (M3)
 
+> **Status:** built. Results so far are in `eval/model_check.md` (real ASL Citizen signers) and
+> `eval/pipeline_check.md` (real phrases through the app pipeline). Decisions: DECISIONS.md D-020..D-027.
+> Still to do on site: framing + fps on the demo phone, hand setting, held-out teammate (`eval/sign_eval.py`).
+
 **Goal:** the 30-second demo works by signing. Recognize a small, *tested* set of everyday signs
 reliably. Open-ended ASL translation is a non-goal. Typing and quick replies always work, so
 no turn depends on recognition alone.

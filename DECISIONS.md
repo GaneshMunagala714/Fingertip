@@ -110,7 +110,7 @@ The design has a first-launch voice picker; the brief says zero setup screens be
 call. Resolution: the picker opens on first launch with Maya preselected (one tap), and an
 incoming call always takes over the screen. Set up the demo phone before judging.
 
-## D-017 · Sign recognition plan replaced (see `model/PLAN.md`)
+## D-017 · Sign recognition plan replaced (see `model/PLAN.md`; results in D-020..D-026)
 No more "80 signs" target. Test real checkpoints on the demo phone in hour one. Segment by
 short pauses (one sign per segment). Start with the 15-25 signs that demonstrably work, and
 report both single-sign accuracy and full-phrase success on a held-out signer.
@@ -122,3 +122,53 @@ instead" opens the keyboard.
 ## D-019 · In-person name
 The top half says "{name} is saying" using the name from the signer's first errand note
 ("name Shruti"). Until a name is known, it says "They're saying". No pronouns are guessed.
+
+## D-020 · Sign model: SignBart-ASL-2730, ISLR 1st place as a second opinion
+Searched HF for landmark-based ASL models (video models were out: raw video never leaves the
+phone). SignBart-ASL-2730 (ASL Citizen, 2,730 signs) covers 62 of our 69 planned signs,
+including COME, SUNDAY and most numbers. The ISLR 1st-place model (250 signs, MIT) covers 20,
+and it needs 468 face points per frame, so it's only used for checking.
+I reimplemented SignBart from the paper and a read of the authors' code (running their code
+was blocked as external code). Weights load with strict key and shape checks; the ONNX export
+matches PyTorch to 5e-6.
+
+## D-021 · Hand order: SignBart's training data swaps MediaPipe's hands
+On real ASL Citizen clips, feeding hands in MediaPipe Holistic's order gave 29% top-1;
+swapped, 64%; mirroring x instead, 19%. The ISLR model got 84% with MediaPipe's own order, which
+confirms the landmark conversion. `signbart_input` swaps. Left-handed signers need the opposite,
+so there's a dominant-hand setting (Signs lab). Matched to the signer: 85% top-1 of all 2,730 signs.
+
+## D-022 · Active vocabulary from measurements
+`model/vocab.json`: the 59 signs with at least 80% hand-matched top-1 (within our signs) on 2+ real
+clips. Recognition is restricted to these. Caller-named options get a 1.6x boost when re-ranking.
+Unsure (top < 0.45 or margin < 0.15): the app offers the top two and says nothing until the
+signer picks. Tune both on the held-out teammate.
+
+## D-023 · Segmenter keeps lead-in
+Trimming clips to the moving part dropped accuracy from 64% to 47%: the model was trained on
+clips with lead-in. Segments keep about 0.33 s before the motion starts and the still frames
+that end them. Pause between signs: 220 ms of stillness. The 280 ms first setting missed real
+pauses because of the speed smoothing. Hands down for 0.5 s ends the phrase.
+
+## D-024 · Tracking in a Web Worker
+With Holistic on the main thread, the call UI stalled (~300 ms per frame on a CPU without a GPU),
+and the test showed quick replies not appearing. Tracking now runs in a classic Web Worker
+(MediaPipe uses importScripts). Busy frames are dropped, which is fine: accuracy is 95% at 10 fps.
+
+## D-025 · Phrase ordering bug found by real-signer test
+A new phrase reset the sign list before the previous phrase's results arrived, giving
+"YES YES SUNDAY YES SUNDAY COME". The reset now runs in the same promise queue as the results.
+
+## D-026 · Meet extension design (stretch)
+Signer-only Chrome extension. The signing panel is the app's `/#meet`, opened as a small
+window (normal camera permission flow). It posts to `window.opener` with origin checks both
+ways. The content script types into Meet chat (best-effort selectors) and fetches `/api/tts`
+(direct ElevenLabs, `ELEVENLABS_API_KEY`). `inject.js` wraps `getUserMedia` so Meet's mic track
+is your mic mixed with the voice. Tested on a stand-in Meet page in Chromium with the
+extension loaded; not tried on real Meet.
+
+## D-027 · Model licenses
+ISLR 1st place: MIT (model card). SignBart-ASL-2730: no license declared on the model card or the
+GitHub repo. Fine for a hackathon demo; ask the authors before any redistribution or product use.
+MediaPipe models: Apache 2.0. ASL Citizen poses were used only to check the pipeline locally and
+are not committed.
