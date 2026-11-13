@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import { post } from '../api'
 import { Keyboard, Mic } from '../icons'
+import { useSigning } from '../sign/useSigning'
 import { SelfView } from './Call'
 
 // Browser speech recognition (Chrome on Android and desktop). Audio stays with the browser's engine; no server STT.
@@ -19,6 +21,14 @@ export function InPerson({ onDone, myName = '', preview }: Props) {
   const [listening, setListening] = useState(false)
   const rec = useRef<SR>(null)
   const want = useRef(true)
+  const [signed, setSigned] = useState('')
+  const sign = useSigning({
+    enabled: !preview,
+    onPhrase: (s) => {
+      post<{ text: string }>('/api/signs/sentence', { signs: s, style: 'casual' })
+        .then((r) => setSigned(r.text)).catch(() => {})
+    },
+  })
 
   useEffect(() => {
     if (!SpeechRecognition || preview) return
@@ -52,6 +62,7 @@ export function InPerson({ onDone, myName = '', preview }: Props) {
     if (!t.trim()) return
     setShown(t.trim())
     setDraft('')
+    setSigned('')
     setTyping(false)
   }
   const who = myName || 'They'
@@ -86,12 +97,16 @@ export function InPerson({ onDone, myName = '', preview }: Props) {
           </form>
         </> : (
           <div className="ip-card">
-            <SelfView signing camera={!preview} label="" className="ip-self" />
-            <div style={{ flex: 1 }}>
-              <b className="cap-blue" style={{ fontFamily: 'var(--head)', fontSize: 17 }}>Sign your answer</b>
-              <div className="fine">It shows on the top half when you tap Show.</div>
+            <SelfView signing camera={!preview} label="" className="ip-self" onVideo={sign.onVideo} />
+            <div style={{ flex: 1 }} aria-live="polite">
+              {signed ? <b style={{ fontSize: 18 }}>{signed}</b>
+                : sign.signs && sign.signs.length ? <div className="signtags">{sign.signs.map((s, i) => <span key={i}>{s}</span>)}<span>...</span></div>
+                : <>
+                  <b className="cap-blue" style={{ fontFamily: 'var(--head)', fontSize: 17 }}>Sign your answer</b>
+                  <div className="fine">It shows on the top half when you tap Show.</div>
+                </>}
             </div>
-            <button className="btn btn-blue" style={{ minHeight: 52 }} onClick={() => (draft ? show(draft) : setTyping(true))}>Show</button>
+            <button className="btn btn-blue" style={{ minHeight: 52 }} onClick={() => (signed ? show(signed) : draft ? show(draft) : setTyping(true))}>Show</button>
           </div>
         )}
       </div>

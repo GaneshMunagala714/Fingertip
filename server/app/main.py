@@ -85,7 +85,7 @@ hub = Hub()
 sessions: dict[str, Controller] = {}
 by_call_sid: dict[str, str] = {}
 relay_reconnects: dict[str, int] = {}
-state = {"telephony": None, "brain": None}
+state = {"telephony": None, "brain": None, "signs": None}
 
 
 def new_session(contact: Contact, direction: str, note: str = "") -> Controller:
@@ -145,6 +145,8 @@ async def lifespan(app: FastAPI):
     latency.configure(settings.log_dir)
     state["telephony"] = make_telephony()
     state["brain"] = make_brain()
+    from .signs.service import SignService
+    state["signs"] = await asyncio.to_thread(SignService)
     if hasattr(state["brain"], "check"):
         asyncio.create_task(state["brain"].check())
     yield
@@ -190,6 +192,7 @@ async def health() -> dict:
         "voice": settings.voice_string(hub.voice_id),
         "active_calls": sum(1 for c in sessions.values() if c.state != ENDED),
         "app_connected": len(hub.sockets),
+        "signs": state["signs"].config() if state["signs"] else None,
         "latency": latency.summary(),
     }
 
@@ -505,6 +508,77 @@ async def stop(sid: str, key: Optional[str] = None) -> dict:
     check_key(key)
     await get_session(sid).stop_speaking()
     return {"ok": True}
+
+
+# ---------------------------------------------------------------- sign recognition
+# The browser runs MediaPipe Holistic, segments one sign per pause and sends landmarks only.
+
+@app.get("/api/signs/config")
+async def signs_config(key: Optional[str] = None) -> dict:
+    check_key(key)
+    return state["signs"].config()
+
+
+class ClassifyIn(BaseModel):
+    frames: list[dict]
+    hand: str = "right"             # right | left | auto
+    sid: Optional[str] = None       # live call: the caller's named options boost those signs
+
+
+@app.post("/api/signs/classify")
+async def signs_classify(body: ClassifyIn, key: Optional[str] = None) -> dict:
+    check_key(key)
+    options: list[str] = []
+    c = sessions.get(body.sid or "")
+    if c and c.analysis:
+        options = c.analysis.options
+    r = await asyncio.to_thread(state["signs"].classify, body.frames[:240], body.hand, options)
+    if r.get("ok"):
+        latency.record("sign_classify_ms", r["ms"])
+        log.info("sign %s unsure=%s top=%s p=%s", r["sign"], r["unsure"], r.pop("_top"), r.pop("_p"))
+    return r
+
+
+class RecordIn(BaseModel):
+    signer: str
+    label: str                      # a gloss, or a phrase like "YES SUNDAY COME"
+    kind: str = "sign"              # sign | phrase
+    segments: list[list[dict]]
+
+
+@app.post("/api/signs/record")
+async def signs_record(body: RecordIn, key: Optional[str] = None) -> dict:
+    check_key(key)
+    return state["signs"].record(body.signer, body.label, [s[:240] for s in body.segments[:12]], body.kind)
+
+
+@app.get("/api/signs/recordings")
+async def signs_recordings(key: Optional[str] = None) -> dict:
+    check_key(key)
+    return state["signs"].recordings_summary()
+
+
+class SentenceIn(BaseModel):
+    signs: list[str]
+    style: str = "casual"
+
+
+@app.post("/api/signs/sentence")
+async def signs_sentence(body: SentenceIn, key: Optional[str] = None) -> dict:
+    """In-person mode: signs -> one sentence, with the same fact/negation/hedge guards."""
+    check_key(key)
+    from . import guards
+    ctx = {"contact_name": "someone in person", "casual": body.style == "casual", "note_facts": [], "recent": []}
+    t0 = time.perf_counter()
+    text = await state["brain"].write_reply(body.signs, "", ctx, "warm" if body.style == "casual" else "neutral")
+    src = [guards.gloss_text(body.signs)]
+    problems = (guards.fact_guard(text, src).problems + guards.negation_guard(text, body.signs).problems
+                + guards.hedge_guard(text, body.signs).problems)
+    if problems and getattr(state["brain"], "fallback", None):
+        text = await state["brain"].fallback.write_reply(body.signs, "", ctx, "neutral")
+        problems = []
+    latency.record("draft_ms", (time.perf_counter() - t0) * 1000)
+    return {"text": text, "problems": problems}
 
 
 @app.exception_handler(Exception)

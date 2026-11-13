@@ -284,3 +284,11 @@ input, textarea { font: inherit; color: inherit; }
 .gframe .phone { width: 390px; height: 844px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.12); background: #fff; position: relative; }
 .gframe .phone .screen { height: 100%; max-width: none; }
 .gframe.wide .phone { width: 980px; height: 560px; }
+.lab-self { width: 120px; height: 160px; border-radius: 14px; overflow: hidden; background: #2b333e; position: relative; border: 2px solid #fff; flex: none; box-shadow: 0 4px 12px rgba(16,21,28,.15); }
+.lab-self video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+.lab-self .ph { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
+.lab-self .ph .hd { width: 36px; height: 36px; border-radius: 99px; background: #4d5765; margin-bottom: 6px; }
+.lab-self .ph .bd { width: 76px; height: 46px; border-radius: 38px 38px 0 0; background: #4d5765; }
+.lab-self .tag2 { position: absolute; bottom: 6px; left: 0; right: 0; text-align: center; font-size: 12px; font-weight: 700; color: #fff; }
+.lab-self.signing { border-color: var(--red); }
+select.num-input { appearance: auto; }

@@ -3,10 +3,13 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App'
 import Gallery from './Gallery'
+import { SignsLab } from './screens/SignsLab'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {location.hash === '#gallery' ? <Gallery /> : <App />}
+    {location.hash === '#gallery' ? <Gallery />
+      : location.hash === '#signs-lab' ? <SignsLab onDone={() => { location.hash = ''; location.reload() }} />
+      : <App />}
   </StrictMode>,
 )
 

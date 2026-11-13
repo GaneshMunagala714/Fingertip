@@ -3,6 +3,7 @@ import { post } from '../api'
 import { INTRO, mmss, VOICES } from '../data'
 import { Alert, ArrowUp, HangUp, Hand, Keyboard, Music, Phone } from '../icons'
 import type { CallView, Line } from '../types'
+import { pretty, useSigning } from '../sign/useSigning'
 import { Avatar } from './Setup'
 
 const REPEAT = 'Could you say that again?'
@@ -64,7 +65,9 @@ export function Calling({ call, voiceId, firstWords, onCancel }: { call: CallVie
 
 /* ---------------------------------------------------------------- self view (camera never leaves the device) */
 
-export function SelfView({ signing, label, camera = true, className = 'selfview' }: { signing: boolean; label?: string; camera?: boolean; className?: string }) {
+export function SelfView({ signing, label, camera = true, className = 'selfview', onVideo }: {
+  signing: boolean; label?: string; camera?: boolean; className?: string; onVideo?: (v: HTMLVideoElement | null) => void
+}) {
   const ref = useRef<HTMLVideoElement>(null)
   const [on, setOn] = useState(false)
   useEffect(() => {
@@ -75,10 +78,11 @@ export function SelfView({ signing, label, camera = true, className = 'selfview'
       .then((s) => {
         if (dead) { s.getTracks().forEach((t) => t.stop()); return }
         stream = s
-        if (ref.current) { ref.current.srcObject = s; setOn(true) }
+        if (ref.current) { ref.current.srcObject = s; setOn(true); onVideo?.(ref.current) }
       })
       .catch(() => setOn(false))
-    return () => { dead = true; stream?.getTracks().forEach((t) => t.stop()) }
+    return () => { dead = true; onVideo?.(null); stream?.getTracks().forEach((t) => t.stop()) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camera])
   return (
     <div className={`${className} ${signing ? 'signing' : ''}`} aria-label="Your camera">
@@ -129,7 +133,26 @@ type Props = {
   startTyping?: string
 }
 
-export function InCall({ call, online, dispatch, signing = null, unsure = null, onPickUnsure, onSignAgain, preview = false, startTyping }: Props) {
+export function InCall({ call, online, dispatch, signing: signingProp = null, unsure: unsureProp = null, onPickUnsure, onSignAgain, preview = false, startTyping }: Props) {
+  // Live sign recognition. Each new sign re-drafts on the server, so the reply is ready (and sealed with
+  // its approval hash) before the signer taps Send. Send never waits on a model.
+  const lastPosted = useRef('')
+  const draftFrom = (s: string[]) => {
+    const key = s.join(' ')
+    if (preview || !s.length || key === lastPosted.current) return
+    lastPosted.current = key
+    post(`/api/calls/${call.sid}/signs`, { signs: s }).catch(() => {})
+  }
+  const live = useSigning({ sid: call.sid, enabled: !preview && call.state !== 'ENDED', onSigns: draftFrom, onPhrase: draftFrom })
+  const signing = signingProp ?? live.signs
+  const unsure = unsureProp ?? (live.unsure ? { options: live.unsure.map(pretty) } : null)
+  const pickUnsure = (o: string) => (onPickUnsure ? onPickUnsure(o) : live.pick(o.toUpperCase().replace(/ /g, '-')))
+  const signAgain = () => {
+    if (onSignAgain) return onSignAgain()
+    live.again()
+    lastPosted.current = ''
+    post(`/api/calls/${call.sid}/draft/clear`).catch(() => {})
+  }
   const name = call.contact.name
   const timer = useTimer(call.startedAt)
   const [mode, setMode] = useState<'idle' | 'type' | 'edit'>(startTyping !== undefined ? 'type' : 'idle')
@@ -246,7 +269,7 @@ export function InCall({ call, online, dispatch, signing = null, unsure = null, 
       </div>)
   }
   if (reconnecting) items.push(<div key="rc" className="pill">Anything {name} says now will show up once we reconnect</div>)
-  if (signing && !draft) {
+  if (signing) {
     items.push(
       <div key="signing" className="draft-wrap">
         <span className="lab">Reading your signs...</span>
@@ -255,17 +278,17 @@ export function InCall({ call, online, dispatch, signing = null, unsure = null, 
         </div>
       </div>)
   }
-  if (unsure && !draft) {
+  if (unsure) {
     items.push(
       <div key="unsure" className="unsure">
         <b>Not sure about one sign. Which did you mean?</b>
         <div className="opts">
-          {unsure.options.map((o, i) => <button key={o} className={i === unsure.options.length - 1 ? 'on' : ''} onClick={() => onPickUnsure?.(o)}>{o}</button>)}
+          {unsure.options.map((o, i) => <button key={o} className={i === unsure.options.length - 1 ? 'on' : ''} onClick={() => pickUnsure(o)}>{o}</button>)}
         </div>
         <small>Nothing is said until you pick.</small>
       </div>)
   }
-  if (draft && mode !== 'edit') {
+  if (draft && mode !== 'edit' && !signing && !unsure) {
     const under = draft.blocked ? (draft.problems[0] ? `This ${draft.problems[0]} · tap to change` : 'Check this · tap to change')
       : draft.source === 'signs' ? 'From your signing · tap to change'
       : draft.source === 'rest' ? "The part they didn't hear · tap to change" : 'Tap to change'
@@ -291,11 +314,11 @@ export function InCall({ call, online, dispatch, signing = null, unsure = null, 
   )
   if (reconnecting) {
     dock = <div className="dockrow"><div className="status"><span className="dots"><i /><i /><i /></span>Getting back in...</div></div>
-  } else if (unsure && !draft && mode === 'idle') {
+  } else if (unsure && mode === 'idle') {
     dock = <div className="dockrow">
       <button className="sq" onClick={() => setMode('type')} aria-label="Type instead"><Keyboard /></button>
-      <button className="btn btn-ghost grow" onClick={onSignAgain}>Sign again</button></div>
-  } else if (signing && !draft && mode === 'idle') {
+      <button className="btn btn-ghost grow" onClick={signAgain}>Sign again</button></div>
+  } else if (signing && mode === 'idle') {
     dock = <div className="dockrow">
       <div className="status"><span className="dots"><i /><i /><i /></span><span>Keep signing. Lower your hands when done.</span></div>
       <button className="sq" onClick={() => setMode('type')} aria-label="Type instead"><Keyboard /></button></div>
@@ -369,7 +392,7 @@ export function InCall({ call, online, dispatch, signing = null, unsure = null, 
         </div>
       ) : (
         <div className="threadwrap">
-          {mode === 'idle' && st !== 'CONFIRMING' && !reconnecting && <SelfView camera={!preview} signing={!!signing || !!unsure || (!!draft && draft.source === 'signs')}
+          {mode === 'idle' && st !== 'CONFIRMING' && !reconnecting && <SelfView camera={!preview} onVideo={live.onVideo} signing={!!signing || !!unsure || (!!draft && draft.source === 'signs')}
                     label={unsure ? 'Got it' : undefined} />}
           <div className="thread" ref={threadRef} aria-live="polite">
             <div className="spacer" />

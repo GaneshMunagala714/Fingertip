@@ -8,3 +8,6 @@ logs/
 .env
 *.onnx.tmp
 model/data/
+# Source weights (re-download with model/download_models.sh); the runtime only needs signbart.onnx.
+model/signbart/model.safetensors
+model/islr/model.tflite
