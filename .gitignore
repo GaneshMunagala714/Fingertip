@@ -14,3 +14,7 @@ model/islr/model.tflite
 # Show it clips (people's videos): never commit
 data/shows/
 server/data/
+
+# Claude Code: shared settings are committed; personal and machine-specific files are not
+.claude/settings.local.json
+.claude/launch.json
