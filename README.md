@@ -5,7 +5,9 @@ surface: `app/src/brand.ts`, `extension/content.js`, server `APP_NAME`.)
 
 > **Getting it running? Read [WHAT_I_NEED.md](WHAT_I_NEED.md) first.**
 >
-> **Picking this up? Start with [HANDOFF.md](HANDOFF.md).** Every feature, its goal and novelty: [docs/FEATURES.md](docs/FEATURES.md). Status: [docs/STATUS.md](docs/STATUS.md). Event contract: [docs/CONTRACT.md](docs/CONTRACT.md).
+> **New to the team? Read [HANDOUT.md](HANDOUT.md): every feature, how to run it, who does what.**
+>
+> **Deploying or making the first real call? [HANDOFF.md](HANDOFF.md).** Every feature, its goal and novelty: [docs/FEATURES.md](docs/FEATURES.md). Status: [docs/STATUS.md](docs/STATUS.md). Event contract: [docs/CONTRACT.md](docs/CONTRACT.md).
 
 **Communicate your way. Be understood anywhere.** A Deaf, hard-of-hearing or nonspeaking person
 makes and takes real phone calls and joins existing meetings. They sign, type or tap a quick reply.
