@@ -50,7 +50,8 @@ only when the request got no answer at all.
 | Signs for the current reply | `POST /api/calls/{sid}/signs` |
 | Select voice, heads-up style | WebSocket `hello` (`voice_id`, `intro_style`) |
 | Speak into a meeting | `POST /api/meet/say` (desktop bridge) or the Meet extension |
-| Show it: analyze a clip | `POST /api/show` (multipart: `file`, `duration`, `context`, `title`) → facts with `t`, `t_end`, `box` |
+| Show it: analyze a clip | `POST /api/show` (multipart: `file`, `duration`, `context`, `title`) → `{status: processing}`; poll `GET /api/show/{id}` for `progress`, then `sections` (with transcript `lines`), `facts` (`t`, `t_end`, `box`, `refined`) |
+| Show it: ask the video | `POST /api/show/{id}/ask` `{question}` → `{found, fact}`; in a call `POST /api/calls/{sid}/ask-video` `{question?}` (default: the caller's last line) → event `video_facts` with `answer` |
 | Show it: use in a call | `POST /api/calls/{sid}/show/{show_id}` → event `video_facts` + a `draft` (`source: video`) |
 | Show it: share / delete | `POST /api/show/{id}/share` `{share}` · `DELETE /api/show/{id}` · read-only `GET /api/shared/{token}` |
 

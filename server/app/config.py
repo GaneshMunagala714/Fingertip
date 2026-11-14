@@ -46,8 +46,11 @@ class Settings:
 
     # Show it (video -> evidence-linked facts with overlays). See server/app/show.py.
     gemini_video_model: str = field(default_factory=lambda: os.getenv("GEMINI_VIDEO_MODEL", "gemini-3.8-flash"))
-    show_fps: float = field(default_factory=lambda: float(os.getenv("SHOW_FPS", "4")))
-    show_timeout_s: float = field(default_factory=lambda: float(os.getenv("SHOW_TIMEOUT_S", "90")))
+    show_fps: float = field(default_factory=lambda: float(os.getenv("SHOW_FPS", "4")))            # overview pass
+    show_section_fps: float = field(default_factory=lambda: float(os.getenv("SHOW_SECTION_FPS", "8")))  # transcripts
+    show_refine_fps: float = field(default_factory=lambda: float(os.getenv("SHOW_REFINE_FPS", "10")))   # precision
+    show_refine_window: float = field(default_factory=lambda: float(os.getenv("SHOW_REFINE_WINDOW", "3")))
+    show_timeout_s: float = field(default_factory=lambda: float(os.getenv("SHOW_TIMEOUT_S", "180")))
     show_dir: str = field(default_factory=lambda: os.getenv("SHOW_DIR", "data/shows"))
     show_ttl_hours: float = field(default_factory=lambda: float(os.getenv("SHOW_TTL_HOURS", "24")))
     show_max_mb: int = field(default_factory=lambda: int(os.getenv("SHOW_MAX_MB", "60")))

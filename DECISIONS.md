@@ -232,3 +232,10 @@ our server for `SHOW_TTL_HOURS` (24) to replay or share, then deleted; "Delete t
 it immediately. No fake engine in the product: without Gemini the feature says it needs the key.
 Unverified until the key arrives: Gemini's fact quality, box accuracy, latency on 10-60 s clips,
 and the model name `gemini-3.8-flash` (`GEMINI_VIDEO_MODEL`).
+
+Deepened the same day to match the Process-Annotation engine: analysis is a background job with
+progress; pass 1 gives sections that tile the clip plus facts; pass 2 transcribes each section in
+parallel (actions, on-screen text, speech, sounds); pass 3 is a precision pass around each fact
+(kept only inside its window). Added "ask the video" (answered only from the clip, or refused) and
+a printable problem report whose key frames are grabbed in the browser, so no new server
+dependencies. One failed section or fact keeps its coarse result; only a failed overview fails.

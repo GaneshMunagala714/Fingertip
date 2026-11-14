@@ -30,7 +30,10 @@ So nothing that needs them can be "Working and verified". Updated 2026-11-14.
 
 | Feature | Status | Evidence / what's missing |
 |---|---|---|
-| Film a clip → facts with time + box → overlay player (tooltips, timeline, tap to jump) | Implemented; plumbing verified with a scripted engine | Browser check with a synthetic 20 s clip: the box landed within ~4 px of the drawn shape at 7 s. **Gemini itself never called** (no key) |
+| Film a clip → background job (overview, section transcripts, precision pass) with live progress | Implemented; verified with a scripted engine | Progress shown live; failed sections/facts keep the coarse result. **Gemini itself never called** (no key) |
+| Studio: AR boxes, draggable section rail, live transcript, key moments | Verified in browser (scripted engine, synthetic clip) | Box within ~4 px of the drawn shape; rail scrub highlights the right section and line |
+| Ask the video (standalone and in a call) | Verified (tests + browser, scripted engine) | Unknown questions are refused, not guessed |
+| Problem report (key frames with boxes, timeline; print or PDF) | Verified in browser | Frames are real video pixels |
 | Use in a call: summary as a draft, "Say this" per fact, facts allowed for the guards | Implemented and tested (server tests + browser, fake line) | Attaching never skips ringing/connecting (bug found and fixed); invented numbers still blocked |
 | Share link for the other person (off by default), delete now, 24 h expiry | Implemented and tested (server tests + browser) | |
 | Latency and accuracy on real clips | Not measured | Needs the Gemini key and a few real clips |

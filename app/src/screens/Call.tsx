@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { NetworkError, newRequestId, post, withKey } from '../api'
-import { ShowFlow, ShowPlayer } from './Show'
+import { NetworkError, newRequestId, post } from '../api'
+import { CallVideoCard, ShowFlow } from './Show'
 import { DEFAULT_QUICK, INTRO, mmss, VOICES } from '../data'
 import { Alert, ArrowUp, HangUp, Hand, Keyboard, Music, Phone, Video as VideoIcon } from '../icons'
 import type { CallView, Line } from '../types'
@@ -306,13 +306,9 @@ export function InCall({ call, online, dispatch, signing: signingProp = null, un
       </div>)
   }
   if (call.video && call.video.facts.length > 0) {
-    items.push(
-      <div key="video" className="vidcard">
-        <span className="lab">From your video · check a point, then say it</span>
-        <ShowPlayer compact src={preview ? null : withKey(`/api/show/${call.video.show_id}/video`)} facts={call.video.facts}
-                    previewTime={preview ? call.video.facts[0]?.t : undefined}
-                    onSay={(f) => send(f.say, 'chip')} />
-      </div>)
+    const lastCaller = [...call.lines].reverse().find((l) => l.who === 'caller')?.text ?? ''
+    items.push(<CallVideoCard key="video" callSid={call.sid} video={call.video} lastCallerText={lastCaller}
+                              preview={preview} onSay={(f) => send(f.say, 'chip')} />)
   }
   if (draft && mode !== 'edit' && !signing && !unsure) {
     const under = draft.blocked ? (draft.problems[0] ? `This ${draft.problems[0]} · tap to change` : 'Check this · tap to change')

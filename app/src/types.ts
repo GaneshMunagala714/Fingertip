@@ -32,23 +32,37 @@ export type VideoFact = {
   id: string
   say: string
   label: string
-  kind: 'problem' | 'reading' | 'label' | 'object' | 'action' | 'other'
+  kind: 'problem' | 'reading' | 'label' | 'object' | 'action' | 'answer' | 'other'
   t: number
   t_end: number
   /** [ymin, xmin, ymax, xmax], 0-1000 of the video frame; null = not one place. */
   box: [number, number, number, number] | null
   sure: boolean
+  /** Precision pass tightened this time/box. */
+  refined?: boolean
+  /** For answers from "ask the video". */
+  question?: string
 }
+
+export type TranscriptLine = { t: number; kind: 'action' | 'speech' | 'text' | 'sound'; text: string }
+export type VideoSection = { id: string; start: number; end: number; title: string; summary: string; lines: TranscriptLine[] }
 
 export type ShowRecord = {
   id: string
   share_token?: string
   share?: boolean
   title?: string
+  created?: number
   duration: number
+  status?: 'processing' | 'done' | 'failed'
+  progress?: string
+  error?: string
   summary_say: string
   facts: VideoFact[]
+  sections?: VideoSection[]
   notes?: string
+  refined?: number
+  seconds?: number
 }
 
 export type Draft = {
@@ -92,7 +106,7 @@ export type CallView = {
   /** Last Twilio call status for an outgoing call (queued, initiated, ringing, in-progress...). Real events only. */
   carrier?: string
   /** Show it: facts from a clip attached to this call. */
-  video?: { show_id: string; facts: VideoFact[]; summary: string } | null
+  video?: { show_id: string; facts: VideoFact[]; summary: string; answer?: VideoFact | null } | null
 }
 
 export type Recent = {

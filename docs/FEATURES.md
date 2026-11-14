@@ -65,25 +65,19 @@ code checks, and nothing is said without the user's approval.
 
 | # | Feature | What it does | Goal | Novelty (claim) | Status | Code / evidence |
 |---|---|---|---|---|---|---|
-| 3.1 | Film instead of describe | 10–60 s clip → Gemini returns facts with a time and a box each | Calls about physical problems without speaking | **Novel claim** for Deaf/nonspeaking callers (Be My Eyes/Be My AI describe images for *blind* users: check) | Plumbing verified (scripted engine); **Gemini unverified** | `server/app/show.py`, D-035 |
-| 3.2 | Overlay player | Boxes + tooltips follow the playhead, numbered timeline, tap a fact to jump | Check every fact against what the camera saw | Evidence-linked AI output | Verified in browser with a synthetic clip (~4 px alignment) | `screens/Show.tsx` |
-| 3.3 | Facts in the call | Summary as a draft (fact-guarded), "Say this" per fact, facts allowed for the guards | Answer follow-ups from the video | **Novel claim** | Verified (tests + browser, fake line) | `controller.attach_video` |
-| 3.4 | Share link / delete / expiry | Opt-in link for the other person; delete now; 24 h expiry | The landlord sees the annotated clip | Small novelty | Verified (tests) | `/api/shared/*`, `#s/<token>` |
+| 3.1 | Film instead of describe | 10–60 s clip → Gemini reads it in passes, as a background job with live progress | Calls about physical problems without speaking | **Novel claim** for Deaf/nonspeaking callers (Be My Eyes/Be My AI describe images for *blind* users: check) | Plumbing verified (scripted engine); **Gemini unverified** | `server/app/show.py`, D-035 |
+| 3.2 | Section timeline + full transcript | Pass 1: sections that tile the clip. Pass 2 (parallel, one clip per section at 8 fps): everything in each section as timed lines (what happens, on-screen text copied exactly, speech word for word, sounds) | Slide to any part and read exactly what's in it (the Process-Annotation experience) | Process-Annotation's step + transcript passes applied to accessibility | Verified in browser (scripted engine): dragging the rail to 11.2 s showed "Panel and label", highlighted "On screen · E24", boxed E24 | `run_passes`, `ShowPlayer` |
+| 3.3 | Precision pass | A 3 s window at 10 fps around each fact; kept only if the answer falls inside its window | Tight times and boxes | From Process-Annotation's refine pass | Verified (tests, browser: 6.8 s → 6.2 s, box tightened) | `apply_refined` |
+| 3.4 | Studio player with AR overlays | Boxes + tooltips follow the playhead; section rail you can drag; numbered fact pins; chapter label; Timeline / Key moments views | Check every fact against what the camera saw | Evidence-linked AI output | Verified in browser (box within ~4 px of the drawn shape) | `screens/Show.tsx` |
+| 3.5 | Ask the video | Any question ("what's the model number?") is answered only from the clip, with its moment and box; "doesn't clearly show that" otherwise. In a call: one tap checks the caller's last question | Answer follow-ups without guessing | **Novel claim** | Verified (tests, browser: pin 4 at 15.6 s; unknown question refused) | `ask_video`, `/api/calls/{sid}/ask-video` |
+| 3.6 | Facts in the call | Summary as a draft (fact-guarded), "Say this" per fact, facts are allowed sources for the guards, nothing auto-spoken | Talk about it with approval | **Novel claim** | Verified (tests + browser, fake line) | `controller.attach_video`, `add_video_fact` |
+| 3.7 | Problem report | One printable page: key frames grabbed from the clip with their boxes drawn, timestamps, the summary, the full timeline table. Print or save as PDF | Send to a landlord, insurer or repair shop (like the work chart) | Small novelty | Verified in browser (frames contain real video pixels + box) | `ShowReport` |
+| 3.8 | Share link / delete / expiry | Opt-in link: the other person gets the same studio and report; delete now; 24 h expiry | The landlord sees what you saw | Small novelty | Verified (tests) | `/api/shared/*`, `#s/<token>` |
 
-**Known gap (honest): Show it is shallow compared with the team's Process-Annotation tool.**
-That tool gives a full scrubbable timeline, a transcript per section and derived charts (TPS work
-chart, time observation). Show it today returns at most 10 facts from one pass. To make it as
-strong, in order:
-1. **Full timeline pass**: segment the whole clip into sections (what happens, when), each with a
-   description and any speech or text on screen, so you can slide to any section and read it.
-2. **Precision pass**: re-ask Gemini at higher fps on a short window around each fact to tighten
-   times and boxes (the Process-Annotation refine pass).
-3. **A "problem report"**: one page (PDF/PNG) with key frames, boxes, timestamps and the summary,
-   to send to a landlord or insurer, like the work chart.
-4. **Ask the video during the call**: when the caller asks something new, query the stored clip
-   ("what color is the light at 0:12?") and offer the answer as a chip, with its frame.
-5. **Track a box across time** (a box per sampled frame, not just at `t`), so overlays move with
-   the object.
+**Still open on Show it:** real Gemini quality, box accuracy and wait time (needs the key and 3–4
+real clips); boxes that move with the object between `t` and `t_end` (a box per sampled frame);
+whether `start_offset`/`end_offset` clipping works with inline (under 18 MB) video, which isn't
+verified, so if it fails, switch those passes to the Files API (`GeminiVideo.prepare`).
 
 ## 4. Meetings
 
@@ -119,7 +113,7 @@ strong, in order:
 | 7.5 | Real-call checker that logs to `eval/live_calls.md` | Built; never run | `scripts/live_check.py` |
 | 7.6 | Design gallery: every screen with fixture data | Verified | `/#gallery` (27 frames) |
 | 7.7 | Installable web app (PWA), name Fingertip | Verified (manifest) | `app/public/manifest.webmanifest` |
-| 7.8 | Tests: server 34 + 1 skipped, app 12 + 1 skipped | Verified 2026-11-14 | `server/tests`, `app/src/**/*.test.ts` |
+| 7.8 | Tests: server 40 + 1 skipped, app 12 + 1 skipped | Verified 2026-11-14 | `server/tests`, `app/src/**/*.test.ts` |
 
 ---
 

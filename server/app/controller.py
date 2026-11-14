@@ -366,6 +366,12 @@ class Controller:
                 await self._set_state(DRAFT_READY)
         return {"ok": True, "facts": len(self.video_facts), "draft": asdict(self.draft) if summary and self.draft else None}
 
+    async def add_video_fact(self, fact: dict) -> None:
+        """An answer found in the clip during the call: offered like the other facts, never auto-spoken."""
+        self.video_facts = [f for f in self.video_facts if f["id"] != fact["id"]] + [fact]
+        await self.emit({"type": "video_facts", "show_id": self.video_id, "facts": self.video_facts,
+                         "summary": "", "answer": fact})
+
     def _safe_chips(self, chips: list[str], caller_text: str) -> list[str]:
         """Chips are AI-written: drop any that invent a fact."""
         sources = [caller_text, self.note, " ".join(f["value"] for f in self.note_facts), self._video_text]

@@ -35,7 +35,7 @@ from twilio.request_validator import RequestValidator
 
 from . import relay, translate
 from .ai import make_brain
-from .show import VIDEO_TYPES, ShowStore, make_video_engine, public_record, shared_record
+from .show import VIDEO_TYPES, ShowStore, ask_video, make_video_engine, public_record, run_job, shared_record
 from .config import settings
 from .controller import ENDED, RINGING, Contact, Controller
 from .latency import latency
@@ -660,17 +660,42 @@ async def show_create(file: UploadFile = File(...), duration: float = Form(0.0),
     if not data:
         raise HTTPException(400, "The video was empty.")
     sid, path = shows.new(data, ext)
-    try:
-        result = await engine.analyze(data, mime, path, duration, context)
-    except Exception as e:
-        log.warning("show analysis failed: %s", str(e)[:300])
-        shows.delete(sid)
-        raise HTTPException(502, "Couldn't read that video. Try again, or film a little closer and steadier.") from e
     record = {"id": sid, "share_token": secrets.token_urlsafe(18), "share": False, "created": time.time(),
               "duration": duration, "title": title[:80], "context": context[:300], "mime": mime,
-              **result.model_dump()}
+              "status": "processing", "progress": "Sending the video", "summary_say": "", "facts": [],
+              "sections": [], "notes": ""}
     shows.save(sid, record)
+    # Several Gemini passes: run in the background; the app polls GET /api/show/{id} for progress.
+    task = asyncio.create_task(run_job(engine, shows, sid, data, mime, path, duration, context))
+    show_jobs.add(task)
+    task.add_done_callback(show_jobs.discard)
     return public_record(record)
+
+
+show_jobs: set = set()
+
+
+class AskIn(BaseModel):
+    question: str
+
+
+@app.post("/api/show/{sid}/ask")
+async def show_ask(sid: str, body: AskIn, key: Optional[str] = None) -> dict:
+    """Ask the video: answered only from what the clip shows, with the moment and spot."""
+    check_key(key)
+    engine = state.get("video")
+    if engine is None:
+        raise HTTPException(400, "Show it needs the Gemini key on the server.")
+    _show(sid)
+    q = body.question.strip()
+    if not q:
+        raise HTTPException(400, "Ask a question first.")
+    try:
+        fact = await ask_video(engine, shows, sid, q)
+    except Exception as e:
+        log.warning("ask video failed: %s", str(e)[:300])
+        raise HTTPException(502, "Couldn't check the video just now. Try again.") from e
+    return {"ok": True, "found": fact is not None, "fact": fact}
 
 
 def _show(sid: str) -> dict:
@@ -738,7 +763,38 @@ async def show_attach(sid: str, show_id: str, key: Optional[str] = None) -> dict
     check_key(key)
     c = get_session(sid)
     r = _show(show_id)
+    if r.get("status") != "done":
+        raise HTTPException(409, "That video is still being read. Try again in a moment.")
     return await c.attach_video(r["facts"], r["summary_say"], show_id)
+
+
+class AskCallIn(BaseModel):
+    question: str = ""          # "" = what the caller just said
+
+
+@app.post("/api/calls/{sid}/ask-video")
+async def call_ask_video(sid: str, body: AskCallIn, key: Optional[str] = None) -> dict:
+    """The caller asked something the clip might answer: check the video and offer the answer as a
+    fact to approve (with its frame). Nothing is said here."""
+    check_key(key)
+    c = get_session(sid)
+    engine = state.get("video")
+    if engine is None or not c.video_id:
+        raise HTTPException(400, "Attach a video to this call first.")
+    q = (body.question or c._last_caller_text).strip()
+    if not q:
+        raise HTTPException(400, "There's no question to check yet.")
+    try:
+        fact = await ask_video(engine, shows, c.video_id, q)
+    except KeyError:
+        raise HTTPException(404, "That video isn't here any more.")
+    except Exception as e:
+        log.warning("call ask video failed: %s", str(e)[:300])
+        raise HTTPException(502, "Couldn't check the video just now. Try again.") from e
+    if fact is None:
+        return {"ok": True, "found": False, "question": q}
+    await c.add_video_fact(fact)
+    return {"ok": True, "found": True, "fact": fact, "question": q}
 
 
 @app.websocket("/ws/bridge")

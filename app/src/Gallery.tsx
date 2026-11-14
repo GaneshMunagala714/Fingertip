@@ -11,7 +11,7 @@ import { InPerson } from './screens/InPerson'
 import { MeetPanel } from './screens/Meet'
 import { ContactPage, ErrandNote, Home, Settings, VoicePicker, type Prefs } from './screens/Setup'
 import { ShowPlayer } from './screens/Show'
-import type { Analysis, CallView, Contact, Draft, Line, VideoFact } from './types'
+import type { Analysis, CallView, Contact, Draft, Line, VideoFact, VideoSection } from './types'
 
 const MOM: Contact = { id: 'mom', name: 'Mom', number: '4135550177', knows_sign: true, kind: 'person', style: 'casual', fav: true }
 const TONY: Contact = { id: 'tonys', name: "Tony's Pizza", number: '4135550142', knows_sign: false, kind: 'business', style: 'polite',
@@ -46,6 +46,15 @@ const FACTS: VideoFact[] = [
   { id: 'v2', say: 'The panel shows error code E24.', label: 'Error E24', kind: 'reading', t: 11, t_end: 14, box: [120, 420, 220, 600], sure: true },
   { id: 'v3', say: 'There is a puddle under the front of the machine.', label: 'Puddle', kind: 'problem', t: 11.2, t_end: 13, box: [840, 150, 980, 700], sure: false },
   { id: 'v4', say: 'The label says model DW80R5061.', label: 'Model label', kind: 'label', t: 15.5, t_end: 18, box: [300, 700, 380, 900], sure: true },
+]
+const SECTIONS: VideoSection[] = [
+  { id: 's1', start: 0, end: 6, title: 'Whole machine', summary: 'The dishwasher with its door closed.', lines: [
+    { t: 0.4, kind: 'action', text: 'Camera shows the dishwasher from the front' }, { t: 3.1, kind: 'speech', text: "It's been doing this since yesterday" }] },
+  { id: 's2', start: 6, end: 10, title: 'The leak', summary: 'Water drips from the front-left corner of the door.', lines: [
+    { t: 6.2, kind: 'action', text: 'Water drips from the front-left corner of the door' }, { t: 7.0, kind: 'sound', text: 'Steady dripping' }] },
+  { id: 's3', start: 10, end: 20, title: 'Panel and label', summary: 'The error code, then the model label inside the door.', lines: [
+    { t: 11.0, kind: 'text', text: 'E24' }, { t: 11.4, kind: 'action', text: 'The error light blinks red' },
+    { t: 15.5, kind: 'text', text: 'MODEL DW80R5061' }, { t: 16.8, kind: 'action', text: 'Camera moves down to a puddle on the floor' }] },
 ]
 const live = (c: CallView, extra: Record<string, unknown> = {}) => <InCall call={c} online dispatch={noop} preview {...extra} />
 
@@ -143,7 +152,7 @@ const FRAMES: [string, ReactNode, boolean?][] = [
     lines: [L('caller', "Dr. Lee's office, this is Dana. How can I help?"), L('me', "Hi, I'd like to move my appointment.")],
   }))],
   ['26 · Show it: every fact pinned to when and where the camera saw it (fixture data, no video)',
-    <div style={{ padding: 12, background: 'var(--card)' }}><ShowPlayer src={null} facts={FACTS} duration={20} previewTime={11.5} /></div>],
+    <div style={{ padding: 12, background: 'var(--card)' }}><ShowPlayer src={null} facts={FACTS} sections={SECTIONS} duration={20} previewTime={11.5} /></div>],
   ['27 · In a call: check a point against the clip, then say it', live(call({ ...DRLEE, id: 'landlord', name: 'Landlord' }, '00:52', {
     direction: 'outgoing', state: 'DRAFT_READY',
     lines: [L('caller', "Hi, it's Mark. What's going on?")],
