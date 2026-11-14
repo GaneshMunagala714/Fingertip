@@ -1,6 +1,7 @@
 # Handoff: where Sign2Speak stands and what to do next
 
-Written 2026-11-14 for the next agent or teammate. Read this, then `MISSION.md` (goals and rules),
+Written 2026-11-14 for the next agent or teammate. **Accounts and keys to bring: `KEYS_NEEDED.md`.**
+Read this, then `MISSION.md` (goals and rules),
 then `DECISIONS.md` (why things are the way they are). Repo: github.com/Shrutibrahma/HackUMass-26, branch `main`.
 
 ## 0. Blocking, before any code
@@ -30,7 +31,8 @@ then `DECISIONS.md` (why things are the way they are). Repo: github.com/Shrutibr
 | In-person mode | Implemented | Speech captions need Chrome; untested with a real microphone |
 | Live-call checker | Implemented, self-tested with a fake Twilio | `scripts/live_check.py` |
 | Docker image | Built and run locally (Nov 14, Windows + Docker Desktop 27.5) | `/` returns 200; `/api/health` shows `signs.ready: true`. Not yet deployed to Vultr |
-| Multilingual, sound alerts, facial grammar, speaker labels, lip reading | Not started | See §4 |
+| Calls in Spanish / French / Portuguese (M6, D-034) | Implemented, **unverified live** | Bench: 6 scripted-translator cases + 9 translation-guard units pass; needs Gemini + a real call |
+| Sound alerts, facial grammar, speaker labels, lip reading | Not started | See §4 |
 | Incoming meeting captions (tab capture + ASR) | Not started | Use the meeting's own captions for now |
 
 ## 2. First hour on site, in this order
@@ -76,10 +78,11 @@ then `DECISIONS.md` (why things are the way they are). Repo: github.com/Shrutibr
 3. **Real meetings (M5).** Real Google Meet with a second person: load `extension/`, check chat
    posting (selectors in `extension/content.js` are best-effort) and the mic voice. Then Zoom and
    Teams through `bridge/` on a Windows laptop with VB-CABLE. Check for echo.
-4. **One advanced feature (M6), only if 1–3 pass.** Cheapest strong option: multilingual. Twilio's
-   `text` message takes a `lang` field per reply and `transcriptionLanguage="multi"` detects the
-   caller's language. Needs a `<Language>` element for the second language in `relay_twiml`, an LLM
-   translation job, and a guard that numbers survive translation. Show both texts to the signer.
+4. **Advanced feature (M6): calls in another language, built (D-034).** Verify only after 1–3 pass:
+   set a contact's "They speak" to Español, call a Spanish-speaking teammate, check they hear
+   Spanish, the captions are English with their words underneath, and a price still opens the
+   confirm sheet. Then run `python eval/bench.py --live` (it does not yet send the language cases to
+   Gemini; add that if translation quality is in doubt).
 5. **Demo readiness (M8).** Rehearse the script in `MISSION.md` §11 three times, record the backup
    video of the real system, write the submission text.
 6. Not done and probably should stay cut: speaker labels, lip reading, sound alerts, facial grammar.

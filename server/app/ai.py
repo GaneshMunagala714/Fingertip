@@ -275,6 +275,10 @@ class RulesBrain:
     async def write_reply(self, signs: list[str], caller_text: str, context: dict, tone: Tone) -> str:
         return rules_sentence(signs, casual=context.get("casual", False), tone=tone)
 
+    async def translate(self, text: str, target: str, source: str = "") -> Optional[str]:
+        """Rules can't translate. None means: not available (calls stay English)."""
+        return None
+
     async def recap(self, transcript: list[dict]) -> list[str]:
         pts: list[str] = []
         for line in transcript:
@@ -515,6 +519,21 @@ class GeminiBrain:
         except Exception as e:
             log.warning("reply writer fallback: %s", e)
             return rules_sentence(signs, casual=context.get("casual", False), tone=tone)
+
+    async def translate(self, text: str, target: str, source: str = "") -> Optional[str]:
+        """One line, for a call in another language. The caller checks the result with
+        translate.translation_guard before anything is spoken. None on failure."""
+        from .translate import TRANSLATE_RULES
+        if not text.strip():
+            return ""
+        try:
+            r = await self._json(
+                f"{TRANSLATE_RULES}\nFrom: {source or 'auto-detect'}\nTo: {target}\nText: {text!r}",
+                Reply, temperature=0.1, timeout=2.5, job="translate")
+            return r.sentence.strip()
+        except Exception as e:
+            log.warning("translate failed: %s", e)
+            return None
 
     async def recap(self, transcript: list[dict]) -> list[str]:
         try:

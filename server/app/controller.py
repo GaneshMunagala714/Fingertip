@@ -17,7 +17,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Awaitable, Callable, Optional
 
-from . import guards, relay
+from . import guards, relay, translate
 from .ai import TurnAnalysis
 from .latency import latency
 
@@ -54,6 +54,7 @@ class Contact:
     knows_sign: bool = False
     kind: str = "person"          # person | business
     style: str = ""               # casual | polite ("" = casual for people who know I sign)
+    language: str = ""            # BCP-47 the other person speaks ("" = English); see translate.py
 
     @property
     def casual(self) -> bool:
@@ -72,6 +73,8 @@ class Line:
     kind: str = ""                # intro | filler | presence | repeat | fact | reply
     unclear: bool = False
     heard: str = ""               # when cut off: the part the caller heard
+    original: str = ""            # other-language calls: the caller's own words (text is the English)
+    spoken: str = ""              # other-language calls: what the caller actually heard
     ts: float = field(default_factory=time.time)
 
 
@@ -103,6 +106,7 @@ class Controller:
         self.voice_id = voice_id
         self.emit_fn = emit
         self.ts = time_scale          # tests run timers faster
+        self.lang = translate.lang_for(contact.language)   # None = English call
 
         self.state = RINGING
         self.call_sid = ""
@@ -119,7 +123,7 @@ class Controller:
         self.recap: list[str] = []
 
         self._relay_send: Optional[Callable[[str], Awaitable[None]]] = None
-        self._queue: list[tuple] = []      # (text, level, kind, bypass_dup, draft)
+        self._queue: list[tuple] = []      # (text, level, kind, bypass_dup, draft, tone, spoken)
         self._speaking: Optional[Line] = None
         self._speaking_draft: Optional[Draft] = None
         self._speak_task: Optional[asyncio.Task] = None
@@ -244,11 +248,24 @@ class Controller:
 
         t0 = time.perf_counter()
         line = self.caption or Line(id=_nid("c"), who="caller", text=text)
-        line.text, line.status = text, "final"
         self.caption = None
-        self._last_caller_text = text
         self._turn_seq += 1
         turn = self._turn_seq
+        if self.lang:
+            # Everything downstream (captions, analyzer, guards, approvals) works on English.
+            line.original = text
+            en = await self.brain.translate(text, "English", self.lang.english_name)
+            if en:
+                text = en
+            else:
+                await self.emit({"type": "notice", "kind": "translate",
+                                 "text": "Couldn't translate that. Showing their own words."})
+            if turn != self._turn_seq or self.state == ENDED:
+                line.text, line.status = text, "final"    # a newer turn owns the screen; still caption this
+                await self._line(line)
+                return
+        line.text, line.status = text, "final"
+        self._last_caller_text = text
         self._fillers_this_turn = 0
         self._sent_this_turn = False
         self._awaiting_reply = True
@@ -281,7 +298,7 @@ class Controller:
         if qt == "repeat_request":
             last_me = next((l for l in reversed(self.lines) if l.who == "me" and l.kind != "filler"), None)
             if last_me:
-                await self._auto(last_me.text, "repeat", bypass_dup=True)
+                await self._auto(last_me.text, "repeat", bypass_dup=True, spoken=last_me.spoken or None)
                 return
             await self._auto("Sorry, one sec...", "filler")
             return
@@ -342,11 +359,12 @@ class Controller:
             sp = self._speaking
             sp.status = "interrupted"
             heard = (utterance or "").strip()
-            if heard and sp.text.startswith(heard):
+            if heard and (sp.spoken or sp.text).startswith(heard):
                 sp.heard = heard
             await self._line(sp, new=False)
             if self._speaking_draft or sp.kind == "reply":
-                rest = sp.text[len(sp.heard):].strip(" ,.") if sp.heard else sp.text
+                # Other-language calls: what was heard is in their language, so keep the whole English line.
+                rest = sp.text[len(sp.heard):].strip(" ,.") if sp.heard and not sp.spoken else sp.text
                 # Keep the unsaid part as the draft: the signer can say the rest or drop it.
                 self.draft = Draft(id=_nid("d"), text=rest[:1].upper() + rest[1:] if rest else sp.text,
                                    source="rest", level=QUICK)
@@ -433,7 +451,8 @@ class Controller:
         if d.level == CONFIRM:
             await self._open_confirm()
             return {"ok": True, "confirm": True}
-        await self._speak_draft(d)
+        if not await self._speak_draft(d):
+            return {"ok": False, "reason": d.problems[0] if d.problems else "Not sent."}
         return {"ok": True}
 
     async def _open_confirm(self) -> None:
@@ -457,7 +476,8 @@ class Controller:
             return {"ok": False, "stale": True, "reason": "The details changed. Check again."}
         await self.emit({"type": "confirm_closed"})
         if decision == "yes":
-            await self._speak_draft(d)
+            if not await self._speak_draft(d):
+                return {"ok": False, "reason": d.problems[0] if d.problems else "Not sent."}
             return {"ok": True}
         # "change" and "not yet": keep the draft, say nothing.
         await self._set_state(DRAFT_READY)
@@ -470,28 +490,71 @@ class Controller:
         if self.state == DRAFT_READY:
             await self._set_state(self._idle_state())
 
-    async def _speak_draft(self, d: Draft) -> None:
+    async def _speak_draft(self, d: Draft) -> bool:
+        spoken = None
+        if self.lang:
+            spoken, problem = await self._localize(d.text)
+            if problem:
+                # Nothing is said. The approved English stays as the draft; the signer can retry or edit.
+                d.problems = [problem]
+                self.draft = d
+                await self.emit({"type": "notice", "kind": "translate", "text": problem})
+                await self.emit({"type": "draft", "draft": asdict(d)})
+                if self.state != ENDED:
+                    await self._set_state(DRAFT_READY)
+                return False
         self._sent_this_turn = True
         self._awaiting_reply = False
         self._cancel_fillers()
         self.draft = None
         await self.emit({"type": "draft", "draft": None})
-        await self._speak(d.text, d.level, "reply", draft=d, tone=d.tone)
+        await self._speak(d.text, d.level, "reply", draft=d, tone=d.tone, spoken=spoken)
+        return True
 
     # ------------------------------------------------------------ speaking
 
-    async def _auto(self, text: str, kind: str, bypass_dup: bool = False) -> None:
+    async def _localize(self, text: str) -> tuple[Optional[str], str]:
+        """English line -> (what the caller will hear, problem). English calls: (None, "")."""
+        if not self.lang:
+            return None, ""
+        fixed = translate.fixed_line(self.lang, text, {"intro": INTRO, "intro_order": INTRO_ORDER})
+        if fixed:
+            return fixed, ""
+        t0 = time.perf_counter()
+        out = await self.brain.translate(text, self.lang.english_name, "English")
+        latency.record("translate_out_ms", (time.perf_counter() - t0) * 1000)
+        if not out:
+            return None, "Couldn't translate that, so nothing was said."
+        g = translate.translation_guard(text, out, self.lang)
+        if not g.ok:
+            log.warning("translation blocked (%s): %r -> %r", g.problems, text, out)
+            return None, f"Not said: {g.problems[0]}."
+        return out, ""
+
+    async def _auto(self, text: str, kind: str, bypass_dup: bool = False, spoken: Optional[str] = None) -> None:
+        if self.lang and spoken is None:
+            spoken, problem = await self._localize(text)
+            if problem:
+                await self.emit({"type": "notice", "kind": "translate", "text": problem})
+                return
         if kind in ("fact", "repeat"):
             self._awaiting_reply = False
         if kind not in ("filler",):
             self._sent_this_turn = True
             self._cancel_fillers()
-        await self._speak(text, AUTO, kind, bypass_dup=bypass_dup)
+        await self._speak(text, AUTO, kind, bypass_dup=bypass_dup, spoken=spoken)
 
     async def _speak(self, text: str, level: str, kind: str, *, bypass_dup: bool = False,
-                     draft: Optional[Draft] = None, tone: str = "neutral") -> bool:
+                     draft: Optional[Draft] = None, tone: str = "neutral", spoken: Optional[str] = None) -> bool:
+        """`text` is always the English line; `spoken` is what the caller hears on other-language calls."""
         if self.state == ENDED:
             return False
+        if self.lang and spoken is None:
+            # Only fixed lines (fillers) get here without a translation; they're pre-written.
+            spoken = translate.fixed_line(self.lang, text, {"intro": INTRO, "intro_order": INTRO_ORDER})
+            if spoken is None:
+                log.warning("no translation for %r; not spoken", text)
+                return False
         if not bypass_dup and not self.dup.check(text):
             log.info("duplicate blocked: %s", text)
             return False
@@ -502,15 +565,16 @@ class Controller:
             if kind == "filler":
                 return False
             self.dup.mark(text)
-            self._queue.append((text, level, kind, bypass_dup, draft, tone))
+            self._queue.append((text, level, kind, bypass_dup, draft, tone, spoken))
             return True
         t0 = time.perf_counter()
-        line = Line(id=_nid("m"), who="me", text=text, status="speaking", level=level, kind=kind)
+        line = Line(id=_nid("m"), who="me", text=text, status="speaking", level=level, kind=kind,
+                    spoken=spoken or "")
         self.dup.mark(text)
         self.spoken_log.append((time.monotonic() / self.ts, kind, text))
         if self._relay_send:
             try:
-                await self._relay_send(relay.text_message(relay.spoken_token(text, tone)))
+                await self._relay_send(relay.text_message(relay.spoken_token(spoken or text, tone)))
             except Exception:
                 log.exception("relay send failed")
                 await self.emit({"type": "error", "message": "Couldn't reach the call. Trying again..."})
@@ -519,7 +583,7 @@ class Controller:
         self._speaking_draft = draft
         await self._line(line)
         await self._set_state(SPEAKING)
-        self._speak_task = asyncio.create_task(self._finish_speaking(line, text))
+        self._speak_task = asyncio.create_task(self._finish_speaking(line, spoken or text))
         return True
 
     async def _finish_speaking(self, line: Line, text: str) -> None:
@@ -534,8 +598,8 @@ class Controller:
         self._speak_task = None
         await self._line(line, new=False)
         if self._queue:
-            text2, level2, kind2, byp, d2, tone2 = self._queue.pop(0)
-            await self._speak(text2, level2, kind2, bypass_dup=True, draft=d2, tone=tone2)
+            text2, level2, kind2, byp, d2, tone2, spoken2 = self._queue.pop(0)
+            await self._speak(text2, level2, kind2, bypass_dup=True, draft=d2, tone=tone2, spoken=spoken2)
             return
         if self.state == SPEAKING:
             await self._set_state(self._idle_state())

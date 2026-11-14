@@ -20,13 +20,17 @@ from .config import settings
 # ---------------------------------------------------------------- TwiML
 
 
-def relay_twiml(session_id: str, voice_id: str | None = None) -> str:
-    """<Connect><ConversationRelay/></Connect> for a live call."""
+def relay_twiml(session_id: str, voice_id: str | None = None, language: str | None = None) -> str:
+    """<Connect><ConversationRelay/></Connect> for a live call.
+
+    `language` (BCP-47) sets both speech recognition and the voice for the whole call, for
+    calls with someone who speaks another language (translate.py). ElevenLabs Flash v2.5 is
+    multilingual, so the same voice ID speaks Spanish, French or Portuguese. Unverified live."""
     r = VoiceResponse()
     c = Connect(action=f"{settings.public_url}/twilio/relay-ended/{session_id}")
     c.conversation_relay(
         url=f"{settings.ws_base}/ws/relay/{session_id}",
-        language=settings.language,
+        language=language or settings.language,
         tts_provider=settings.tts_provider,
         voice=settings.voice_string(voice_id),
         partial_prompts="true",          # defaults to false; we need live partial captions

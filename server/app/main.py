@@ -33,7 +33,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from twilio.request_validator import RequestValidator
 
-from . import relay
+from . import relay, translate
 from .ai import make_brain
 from .config import settings
 from .controller import ENDED, RINGING, Contact, Controller
@@ -70,7 +70,7 @@ class Hub:
             if digits and re.sub(r"\D", "", c.get("number", ""))[-10:] == digits:
                 return Contact(id=c.get("id", ""), name=c.get("name", number), number=number,
                                knows_sign=bool(c.get("knows_sign")), kind=c.get("kind", "person"),
-                               style=c.get("style", ""))
+                               style=c.get("style", ""), language=_language_or_english(c.get("language", "")))
         return Contact(name=_pretty(number), number=number, kind="person", knows_sign=False)
 
 
@@ -96,6 +96,20 @@ def new_session(contact: Contact, direction: str, note: str = "") -> Controller:
                    emit=hub.broadcast)
     sessions[sid] = c
     return c
+
+
+def twiml_for(c: Controller) -> str:
+    return relay.relay_twiml(c.id, c.voice_id, c.lang.code if c.lang else None)
+
+
+def multilingual_ready() -> bool:
+    """Other-language calls need a model that translates (Gemini). Rules can't."""
+    return getattr(state["brain"], "name", "") == "gemini" and getattr(state["brain"], "ok", None) is not False
+
+
+def _language_or_english(code: str) -> str:
+    """Only keep a call language the server can actually handle; otherwise the call is English."""
+    return code if code and translate.lang_for(code) and multilingual_ready() else ""
 
 
 def get_session(sid: str) -> Controller:
@@ -191,6 +205,7 @@ async def health() -> dict:
         "gemini": {"configured": settings.gemini_ready, "model": settings.gemini_model,
                    "model_ok": getattr(brain, "ok", None), "error": getattr(brain, "last_error", "")},
         "brain": getattr(brain, "name", "?"),
+        "languages": {"available": multilingual_ready(), "list": translate.languages()},
         "voice": settings.voice_string(hub.voice_id),
         "active_calls": sum(1 for c in sessions.values() if c.state != ENDED),
         "app_connected": len(hub.sockets),
@@ -266,7 +281,7 @@ async def relay_ended(sid: str, request: Request) -> Response:
             relay_reconnects[sid] = n + 1
             await hub.broadcast({"type": "notice", "sid": sid, "kind": "reconnecting",
                                  "text": "Reconnecting the call..."})
-            return xml(relay.relay_twiml(sid, c.voice_id))
+            return xml(twiml_for(c))
     if c:
         await end_session(c, "hangup")
     return xml(relay.goodbye_twiml(""))
@@ -365,6 +380,7 @@ class DialIn(BaseModel):
     kind: str = "person"
     style: str = ""
     note: str = ""
+    language: str = ""
 
 
 def _e164(n: str) -> str:
@@ -389,14 +405,20 @@ async def dial(body: DialIn, key: Optional[str] = None) -> dict:
         raise HTTPException(429, "Too many calls in a row. Wait a minute and try again.")
     if sum(1 for s in sessions.values() if s.state != ENDED) >= settings.max_live_calls:
         raise HTTPException(429, "Another call is still going. End it first.")
+    if body.language and not body.language.lower().startswith("en"):
+        if not translate.lang_for(body.language):
+            raise HTTPException(400, "That language isn't supported yet.")
+        if not multilingual_ready():
+            raise HTTPException(400, "Calls in other languages need the Gemini key on the server.")
     recent_dials.append(now)
     contact = Contact(id=body.contact_id, name=body.name or _pretty(to), number=to,
-                      knows_sign=body.knows_sign, kind=body.kind, style=body.style)
+                      knows_sign=body.knows_sign, kind=body.kind, style=body.style,
+                      language=_language_or_english(body.language))
     c = new_session(contact, "outgoing", note=body.note)
     await c.load_note()
     try:
         c.call_sid = await state["telephony"].dial(
-            to, relay.relay_twiml(c.id, c.voice_id), f"{settings.public_url}/twilio/status/{c.id}")
+            to, twiml_for(c), f"{settings.public_url}/twilio/status/{c.id}")
     except Exception as e:
         log.exception("dial failed")
         sessions.pop(c.id, None)
@@ -414,7 +436,7 @@ async def answer(sid: str, key: Optional[str] = None) -> dict:
     if c.state != RINGING:
         return {"ok": True}
     try:
-        await state["telephony"].update_twiml(c.call_sid, relay.relay_twiml(c.id, c.voice_id))
+        await state["telephony"].update_twiml(c.call_sid, twiml_for(c))
     except Exception as e:
         log.exception("answer failed")
         await end_session(c, "failed")

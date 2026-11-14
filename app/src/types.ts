@@ -7,6 +7,8 @@ export type Contact = {
   style?: 'casual' | 'polite'
   fav?: boolean
   note?: string
+  /** BCP-47 the other person speaks; '' or undefined = English. Needs Gemini on the server. */
+  language?: string
 }
 
 export type Line = {
@@ -18,6 +20,10 @@ export type Line = {
   kind: string
   unclear: boolean
   heard: string
+  /** Other-language calls: the caller's own words (text is the English). */
+  original?: string
+  /** Other-language calls: what the caller actually heard. */
+  spoken?: string
   ts: number
 }
 

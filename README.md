@@ -17,12 +17,12 @@ Windows 11 laptop (Python 3.13, Node 24); see `HANDOFF.md` for detail.
 | Milestone | State | Evidence |
 |---|---|---|
 | M1 The phone rings | **Blocked** (no Twilio account, number or deploy yet) | `scripts/live_check.py` is ready |
-| M2 Two-way call (captions, typing, interruptions, hang-up) | Implemented, unverified | Fake-Twilio e2e: `server/tests` 19 passed, 1 skipped |
-| Guards, approvals, fillers, note parser (rules brain) | Implemented and tested (offline) | `eval/bench.py`: 34/34 cases, 27/27 guard units |
+| M2 Two-way call (captions, typing, interruptions, hang-up) | Implemented, unverified | Fake-Twilio e2e: `server/tests` 24 passed, 1 skipped |
+| Guards, approvals, fillers, note parser (rules brain) | Implemented and tested (offline) | `eval/bench.py`: 40/40 cases, 36/36 guard units |
 | M3 Sign recognition | Implemented; tested on public signers only | `eval/model_check.md`, `eval/pipeline_check.md`; **held-out teammate not measured** |
 | M4 Live Gemini behind the guards | **Blocked** (no key) | `python eval/bench.py --live` |
 | M5 Meetings: Meet extension, desktop bridge | Implemented, unverified | Stand-in Meet page; bridge `--dry-run` only |
-| M6 Advanced feature | Planned | Multilingual is the first pick (`HANDOFF.md` §4) |
+| M6 Calls in Spanish / French / Portuguese | Implemented, unverified live | Bench: 6 language cases (scripted translator) + translation guard; needs Gemini (D-034) |
 | M7 Gesture Synth (Playground) | Implemented; touch tested, camera play not tried | `app/src/synth` unit tests 7/7 |
 | Signer app (22 frames, Call / Meetings / Playground) | Implemented and browser-tested | `npm run build` passes; `/#gallery` |
 | Docker image | Implemented and tested locally; not yet on Vultr | Built on Docker 27.5; container serves `/` and `/api/health` with `signs.ready: true` |

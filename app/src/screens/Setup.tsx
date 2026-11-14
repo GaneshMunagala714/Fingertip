@@ -197,6 +197,15 @@ export function ContactPage({ contact, voiceName, onChange, onBack, onCall, onVo
   const [num, setNum] = useState(contact.number)
   const [err, setErr] = useState('')
   const style = contact.style ?? (contact.kind === 'business' ? 'polite' : 'casual')
+  // Other-language calls need translation on the server (Gemini). Ask, don't assume.
+  const [langs, setLangs] = useState<{ available: boolean; list: { code: string; name: string }[] } | null>(null)
+  useEffect(() => {
+    let stop = false
+    fetch('/api/health').then((r) => r.json()).then((h) => { if (!stop) setLangs(h.languages ?? null) }).catch(() => {})
+    return () => { stop = true }
+  }, [])
+  const langCode = contact.language || 'en-US'
+  const langName = langs?.list.find((l) => l.code === langCode)?.name ?? 'English'
 
   function saveNumber(): boolean {
     const d = num.replace(/\D/g, '')
@@ -236,6 +245,18 @@ export function ContactPage({ contact, voiceName, onChange, onBack, onCall, onVo
         <div className="cardbox setting">
           <div className="txt"><b>Talk style</b><small>{style === 'casual' ? 'Casual' : 'Polite'}</small></div>
           <button className="link" onClick={() => onChange({ ...contact, style: style === 'casual' ? 'polite' : 'casual' })}>Change</button>
+        </div>
+        <div className="cardbox setting">
+          <div className="txt">
+            <b>They speak</b>
+            <small>{langCode === 'en-US' ? 'English' : `${langName} · you read and write English`}
+              {langs && !langs.available ? (langCode === 'en-US' ? ' · other languages need the Gemini key' : ' · needs the Gemini key on the server') : ''}</small>
+          </div>
+          <select className="lang-select" aria-label="Language they speak" value={langCode}
+                  disabled={!langs || (!langs.available && langCode === 'en-US')}
+                  onChange={(e) => onChange({ ...contact, language: e.target.value === 'en-US' ? '' : e.target.value })}>
+            {(langs?.list ?? [{ code: 'en-US', name: 'English' }]).map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}
+          </select>
         </div>
         <div className="cardbox setting">
           <div className="txt"><b>Voice</b><small>{voiceName} (your default)</small></div>

@@ -15,6 +15,7 @@ const MOM: Contact = { id: 'mom', name: 'Mom', number: '4135550177', knows_sign:
 const TONY: Contact = { id: 'tonys', name: "Tony's Pizza", number: '4135550142', knows_sign: false, kind: 'business', style: 'polite',
   note: 'Garlic bread and Honey BBQ wings. Name is Shruti. Tell me the total before ordering.' }
 const DRLEE: Contact = { id: 'drlee', name: "Dr. Lee's office", number: '4135550190', knows_sign: false, kind: 'business', style: 'polite' }
+const TAQUERIA: Contact = { id: 'taq', name: 'Taquería Lupita', number: '4135550106', knows_sign: false, kind: 'business', style: 'polite', language: 'es-US' }
 const CONTACTS: Contact[] = [MOM,
   { id: 'jordan', name: 'Jordan', number: '4135550111', knows_sign: true, kind: 'person', fav: true },
   { id: 'grandpa', name: 'Grandpa', number: '4135550122', knows_sign: false, kind: 'person', fav: true },
@@ -115,6 +116,17 @@ const FRAMES: [string, ReactNode, boolean?][] = [
     shown: "Yes, I'm picking up a prescription. The name is Shruti.", label: 'Pharmacist said',
     said: "Got it. It'll be ready in about ten minutes. Any questions for the pharmacist?" }} />],
   ['22 · Google Meet (stretch): signer-only extension', <MeetPanel />, true],
+  ['23 · Call in Spanish: you read English, they hear Spanish', live(call(TAQUERIA, '01:12', {
+    direction: 'outgoing', state: 'DRAFT_READY',
+    lines: [
+      L('me', "Hey! Quick heads-up, I'm deaf, so an app's voicing what I sign. Bear with me a sec.", { kind: 'intro', level: 'auto',
+        spoken: '¡Hola! Un aviso rápido: soy una persona sorda y una app dice en voz alta lo que escribo en señas. Dame un momento, por favor.' }),
+      L('caller', 'Hi, what can I get you?', { original: 'Hola, ¿qué le puedo servir?' }),
+      L('me', 'Two tacos al pastor, please.', { spoken: '2 tacos al pastor, por favor.' }),
+      L('caller', 'What time do you want them for?', { original: '¿Para qué hora los quiere?' }),
+    ],
+    draft: D('For 7:30, please.', { source: 'typed' }), analysis: A(['Let me check.', 'Could you say that again?'], { question_type: 'time' }),
+  }))],
 ]
 
 function TypeFrame() {

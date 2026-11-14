@@ -109,8 +109,9 @@ export function useTimer(start: number | null): string {
 }
 
 function CallerText({ l }: { l: Line }) {
-  if (!l.unclear) return <>{l.text}</>
-  return <>{l.text} <span className="unclear-word">[unclear]</span></>
+  const orig = l.original && l.original !== l.text ? <span className="orig">{l.original}</span> : null
+  if (!l.unclear) return <>{l.text}{orig}</>
+  return <>{l.text} <span className="unclear-word">[unclear]</span>{orig}</>
 }
 
 function Amount({ text }: { text: string }) {
@@ -243,7 +244,7 @@ export function InCall({ call, online, dispatch, signing: signingProp = null, un
         </div>)
       if (l.unclear) items.push(<div key={l.id + 'u'} className="pill">Part of that was hard to hear. We won't guess.</div>)
     } else if (l.kind === 'filler' || l.kind === 'presence') {
-      items.push(<div key={l.id} className="pill">{name} heard "{l.text}"</div>)
+      items.push(<div key={l.id} className="pill">{name} heard "{l.spoken || l.text}"</div>)
     } else {
       const label = l.status === 'speaking' ? `${name} is hearing this...`
         : l.status === 'interrupted' ? 'You · cut off'
@@ -254,7 +255,8 @@ export function InCall({ call, online, dispatch, signing: signingProp = null, un
       items.push(<div key={l.id + 'l'} className="who-label me" style={l.status === 'speaking' ? { color: 'var(--blue)', fontWeight: 700 } : undefined}>{label}</div>)
       items.push(
         <div key={l.id} className={`bub me ${l.status === 'speaking' ? 'speaking' : ''}`}>
-          {l.status === 'interrupted' && l.heard ? <>{l.heard} <span className="rest">{l.text.slice(l.heard.length).trim()}</span></> : l.text}
+          {l.status === 'interrupted' && l.heard && !l.spoken ? <>{l.heard} <span className="rest">{l.text.slice(l.heard.length).trim()}</span></> : l.text}
+          {l.spoken && <span className="orig">{name} heard: {l.spoken}</span>}
         </div>)
       if (l.status === 'interrupted') items.push(<div key={l.id + 'i'} className="pill">{name} started talking, so we stopped and listened</div>)
     }

@@ -202,3 +202,17 @@ blocked the same sentence. Note-fact answers to a new caller question now bypass
 
 ## D-033 · Dial limits
 `DIAL_MAX_PER_MIN` (10) and `MAX_LIVE_CALLS` (3) protect the Twilio account from runaway or abusive dialing.
+
+## D-034 · Calls in another language: translate at the edges, guard every line
+Picked as the M6 feature (MISSION §6) because it reuses the whole engine. Each contact can have a
+language (Spanish, French, Portuguese). The signer still works only in English, so the turn analyzer,
+guards, confirm sheet and approval hashes are unchanged. Twilio gets the language on
+`<ConversationRelay language=...>` for both recognition and voice; ElevenLabs Flash v2.5 is
+multilingual, so the voice ID stays the same. Caller lines are translated to English for the
+captions, with their own words shown underneath. Approved lines are translated just before they are
+spoken and must pass `translation_guard`: every number (as digits), day, month and "no" must survive,
+and no number may be added. If not, nothing is said and the draft comes back. Fixed lines (heads-up,
+fillers, "still here") are written once per language in `translate.py` and never go through a model.
+Needs Gemini; without it the app disables the picker and the server refuses non-English dials.
+Translation happens after approval, so the signer sees the translation as it is spoken, not before.
+Unverified live: Twilio's handling of `es-US` / `fr-FR` / `pt-BR` and Gemini translation quality.

@@ -26,6 +26,7 @@ from app import guards  # noqa: E402
 from app.ai import RulesBrain  # noqa: E402
 from app.controller import (AUTO, CONFIRM, CONFIRMING, ON_HOLD, QUICK, Contact,  # noqa: E402
                             Controller)
+from app.translate import LANGS, translation_guard  # noqa: E402
 
 # 1 virtual second = 10 ms. Windows timers tick every ~15.6 ms, which is coarser than the
 # 5-15 ms gaps some cases depend on, so run the clock 5x slower there.
@@ -40,6 +41,12 @@ class ScriptedWriter:
         self.fallback = RulesBrain()
         self.forced: list[str] = []
         self.name = getattr(inner, "name", "?")
+        self.translations: dict[str, str] = {}     # scripted translator for other-language cases
+
+    async def translate(self, text, target, source=""):
+        if self.translations:
+            return self.translations.get(text)
+        return await self.inner.translate(text, target, source)
 
     async def parse_note(self, note):
         return await self.inner.parse_note(note)
@@ -604,6 +611,111 @@ async def c_repeat_q(brain):
     return call, {"one answer per question": (len(facts) == 2, str(facts))}
 
 
+# ------------------------------------------------------------------ other-language calls (M6)
+# The translator is scripted: these check the plumbing and the guard, not translation quality.
+# `python eval/bench.py --live` does not run these against Gemini yet.
+
+TAQUERIA = Contact(id="taq", name="Taquería Lupita", number="+14135550106", kind="business", language="es-US")
+ES = {
+    "Hola, ¿qué le puedo servir?": "Hi, what can I get you?",
+    "¿Para qué hora lo quiere?": "What time do you want it for?",
+    "Son 23 dólares con 40. ¿Está bien?": "That's 23 dollars and 40 cents. Is that okay?",
+    "Two tacos, please.": "Dos tacos, por favor.",
+    "For 7:30, please.": "Para las 7:30, por favor.",
+    "No, thank you.": "No, gracias.",
+    "See you Sunday.": "Nos vemos el domingo.",
+}
+
+
+def said_out_loud(call: Call) -> list[str]:
+    """What the caller actually heard: the tokens sent to Twilio."""
+    return [json.loads(m).get("token", "") for m in call.sent if json.loads(m).get("type") == "text"]
+
+
+async def es_call(brain, extra: dict | None = None) -> Call:
+    call = await make_call(brain, TAQUERIA, "outgoing")
+    call.writer.translations = {**ES, **(extra or {})}
+    return call
+
+
+@case("Other language", "caption in English, original kept, intro in Spanish")
+async def c_es_caption(brain):
+    call = await es_call(brain)
+    await caller(call, "Hola, ¿qué le puedo servir?")
+    line = next(l for l in call.c.lines if l.who == "caller")
+    heard = said_out_loud(call)
+    return call, {"caption is English": (line.text == "Hi, what can I get you?", line.text),
+                  "original kept": (line.original == "Hola, ¿qué le puedo servir?", line.original),
+                  "heads-up in Spanish": (any("persona sorda" in h for h in heard), str(heard))}
+
+
+@case("Other language", "typed reply spoken in Spanish, time survives")
+async def c_es_typed(brain):
+    call = await es_call(brain)
+    await caller(call, "¿Para qué hora lo quiere?")
+    await wait(12)                                    # the Spanish heads-up plays first
+    r = await type_(call, "For 7:30, please.")
+    heard = said_out_loud(call)
+    me = [l for l in call.c.lines if l.who == "me" and l.kind == "reply"]
+    return call, {"sent": (r.get("ok") is True, str(r)),
+                  "caller heard Spanish": ("Para las 7:30, por favor." in heard, str(heard)),
+                  "signer sees both": (bool(me) and me[-1].spoken == "Para las 7:30, por favor.", str(me))}
+
+
+@case("Other language", "translation that drops a number is never said")
+async def c_es_lost_number(brain):
+    call = await es_call(brain, {"Two tacos, please.": "Unos tacos, por favor."})
+    await caller(call, "Hola, ¿qué le puedo servir?")
+    await wait(6)
+    r = await type_(call, "Two tacos, please.")
+    heard = said_out_loud(call)
+    return call, {"refused": (r.get("ok") is False, str(r)),
+                  "not heard": (not any("tacos" in h for h in heard), str(heard)),
+                  "draft kept for the signer": (call.c.draft is not None and call.c.draft.text == "Two tacos, please.",
+                                                str(call.c.draft))}
+
+
+@case("Other language", "translation that drops 'no' is never said")
+async def c_es_lost_no(brain):
+    call = await es_call(brain)
+    await caller(call, "Son 23 dólares con 40. ¿Está bien?")
+    d = await sign(call, ["NO", "THANK-YOU"])
+    call.writer.translations[d.text] = "Sí, gracias."      # a translator that flips the meaning
+    r = await send_draft(call)
+    heard = said_out_loud(call)
+    return call, {"refused": (r.get("ok") is False, str(r)), "no 'sí' heard": (not any("Sí" in h for h in heard), str(heard))}
+
+
+@case("Other language", "price still goes through the confirm sheet")
+async def c_es_price(brain):
+    call = await es_call(brain, {"Yes, that's fine.": "Sí, está bien."})
+    await caller(call, "Son 23 dólares con 40. ¿Está bien?")
+    await wait(12)
+    a = call.c.analysis
+    text, r = await tap_chip(call, 0)
+    opened = bool(confirms(call))
+    heard_before = list(said_out_loud(call))
+    r2 = await confirm_yes(call) if opened else {"ok": False}
+    heard = said_out_loud(call)
+    return call, {"money seen in the English": (a.involves_money, a.model_dump_json()),
+                  "confirm sheet first": (opened and not any("está bien" in h for h in heard_before), str(r)),
+                  "said after confirm": (r2.get("ok") and any("está bien" in h for h in heard), str(heard))}
+
+
+@case("Other language", "fillers come from the written Spanish lines")
+async def c_es_fillers(brain):
+    call = await es_call(brain)
+    await caller(call, "Hola, ¿qué le puedo servir?")
+    await wait(12)                                    # heads-up; no fillers on the turn it answers
+    await caller(call, "¿Para qué hora lo quiere?")
+    await wait(12)
+    fillers = [t for _, k, t in spoken(call) if k == "filler"]
+    heard = said_out_loud(call)
+    es_fillers = [h for h in heard if h.startswith(("Mm, un", "Mm, solo", "Okay, un", "Perdón"))]
+    return call, {"fillers spoken in Spanish": (len(fillers) >= 1 and len(es_fillers) == len(fillers),
+                                                f"{fillers} -> {es_fillers}")}
+
+
 # ------------------------------------------------------------------ guard unit cases
 
 GUARD_UNITS = [
@@ -624,6 +736,16 @@ GUARD_UNITS = [
     ("hedge", "Maybe, I'll see.", ["MAYBE", "COME"], True),
     ("hedge", "Yes, I'll come.", ["MAYBE", "COME"], False),
     ("hedge", "Yes, I'll come.", ["YES", "COME"], True),
+    # translation: (English, [translation, language])
+    ("translation", "Two tacos at 7:30, please.", ["Dos tacos a las 7:30, por favor.", "es-US"], False),
+    ("translation", "2 tacos at 7:30, please.", ["2 tacos a las 7:30, por favor.", "es-US"], True),
+    ("translation", "That's $23.40, right?", ["Son $23,40, ¿verdad?", "es-US"], True),
+    ("translation", "That's $23.40, right?", ["Son $24,40, ¿verdad?", "es-US"], False),
+    ("translation", "No, thank you.", ["Sí, gracias.", "es-US"], False),
+    ("translation", "No, thank you.", ["Non, merci.", "fr-FR"], True),
+    ("translation", "I can't make it Sunday.", ["Je ne peux pas venir samedi.", "fr-FR"], False),
+    ("translation", "I can't make it Sunday.", ["Não posso ir no domingo.", "pt-BR"], True),
+    ("translation", "Sounds good.", ["Me parece bien, a las 5.", "es-US"], False),
 ]
 
 
@@ -634,6 +756,8 @@ def run_guard_units() -> list[tuple[str, str, bool, bool]]:
             got = guards.fact_guard(sentence, src).ok
         elif kind == "hedge":
             got = guards.hedge_guard(sentence, src).ok
+        elif kind == "translation":
+            got = translation_guard(sentence, src[0], LANGS[src[1]]).ok
         else:
             got = guards.negation_guard(sentence, src).ok
         rows.append((kind, f"{sentence} (from: {'; '.join(src)})", expect, got))

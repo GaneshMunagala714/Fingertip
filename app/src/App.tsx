@@ -69,6 +69,7 @@ export default function App() {
     try {
       const r = await post<{ sid: string; first_words: string | null }>('/api/calls', {
         number: c.number, name: c.name, contact_id: c.id, knows_sign: c.knows_sign, kind: c.kind, style: c.style ?? '', note,
+        language: c.language ?? '',
       })
       setFirstWords((f) => ({ ...f, [r.sid]: r.first_words }))
       setRoute({ name: 'home' })
