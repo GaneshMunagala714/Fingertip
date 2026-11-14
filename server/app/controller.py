@@ -297,7 +297,9 @@ class Controller:
                 if fact["key"] == "order":
                     self.order_given = True
                 if not needs:
-                    await self._auto(fact["say"], "fact")
+                    # A new question from the caller always gets its answer, even if we said the
+                    # same words a few seconds ago (the duplicate guard is for accidental repeats).
+                    await self._auto(fact["say"], "fact", bypass_dup=True)
                     return
                 self.draft = self._seal(Draft(id=_nid("d"), text=fact["say"], source="fact", level=CONFIRM,
                                               confirm_summary=summary))

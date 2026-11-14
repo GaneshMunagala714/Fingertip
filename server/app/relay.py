@@ -1,7 +1,8 @@
 """Twilio ConversationRelay adapter: TwiML builders and WebSocket message shapes.
 
-Everything protocol-specific lives here so it can be checked against the
-current Twilio docs in one place (see DECISIONS.md, D-003).
+Everything protocol-specific lives here. Checked against Twilio's docs on 2026-11-14
+(websocket-messages, twiml/connect/conversationrelay, voice-configuration, onboarding):
+message shapes, attribute names, the v3/v4 voice format and audio tags all match. See D-028.
 
 TwiML attribute names come from the official `twilio` Python SDK (9.13),
 which generates them from Twilio's TwiML schema.
@@ -31,6 +32,7 @@ def relay_twiml(session_id: str, voice_id: str | None = None) -> str:
         partial_prompts="true",          # defaults to false; we need live partial captions
         interruptible="any",             # caller can talk over our voice (Twilio default, set explicitly)
         echo_prompt_filtering="true",    # drop transcripts of our own TTS echo (best with ElevenLabs)
+        ignoreBackchannel="true",        # "yeah" / "uh-huh" from the caller doesn't cut our sentence off
         dtmf_detection="true",
         application_reconnect="true",    # Twilio re-dials our socket if it drops
         elevenlabs_text_normalization="on",

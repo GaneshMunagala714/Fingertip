@@ -85,6 +85,8 @@ hub = Hub()
 sessions: dict[str, Controller] = {}
 by_call_sid: dict[str, str] = {}
 relay_reconnects: dict[str, int] = {}
+recent_dials: list[float] = []
+bridges: set[WebSocket] = set()      # desktop bridges (virtual microphone for Zoom / Teams / Meet)
 state = {"telephony": None, "brain": None, "signs": None}
 
 
@@ -192,6 +194,8 @@ async def health() -> dict:
         "voice": settings.voice_string(hub.voice_id),
         "active_calls": sum(1 for c in sessions.values() if c.state != ENDED),
         "app_connected": len(hub.sockets),
+        "bridges": len(bridges),
+        "meet_voice": bool(settings.elevenlabs_api_key),
         "signs": state["signs"].config() if state["signs"] else None,
         "latency": latency.summary(),
     }
@@ -255,7 +259,8 @@ async def relay_ended(sid: str, request: Request) -> Response:
     form = await twilio_form(request)
     c = sessions.get(sid)
     log.info("relay ended %s: %s", sid, {k: v for k, v in form.items() if k.startswith(("Session", "Handoff"))})
-    if c and c.state != ENDED and "Handoff" not in "".join(form.keys()):
+    # Twilio sends SessionStatus = ended (we sent "end"), completed (caller hung up) or failed (error).
+    if c and c.state != ENDED and form.get("SessionStatus") == "failed" and form.get("CallStatus") == "in-progress":
         n = relay_reconnects.get(sid, 0)
         if n < 2:
             relay_reconnects[sid] = n + 1
@@ -378,6 +383,13 @@ def _e164(n: str) -> str:
 async def dial(body: DialIn, key: Optional[str] = None) -> dict:
     check_key(key)
     to = _e164(body.number)
+    now = time.time()
+    recent_dials[:] = [t for t in recent_dials if now - t < 60]
+    if len(recent_dials) >= settings.dial_max_per_min:
+        raise HTTPException(429, "Too many calls in a row. Wait a minute and try again.")
+    if sum(1 for s in sessions.values() if s.state != ENDED) >= settings.max_live_calls:
+        raise HTTPException(429, "Another call is still going. End it first.")
+    recent_dials.append(now)
     contact = Contact(id=body.contact_id, name=body.name or _pretty(to), number=to,
                       knows_sign=body.knows_sign, kind=body.kind, style=body.style)
     c = new_session(contact, "outgoing", note=body.note)
@@ -583,9 +595,65 @@ async def signs_sentence(body: SentenceIn, key: Optional[str] = None) -> dict:
 
 # ---------------------------------------------------------------- Meet extension voice (stretch)
 
+@app.websocket("/ws/bridge")
+async def ws_bridge(ws: WebSocket, key: Optional[str] = None) -> None:
+    """The desktop bridge (bridge/sign2speak_bridge.py) waits here for sentences to speak into a virtual mic."""
+    if settings.app_access_key and not secrets.compare_digest(key or "", settings.app_access_key):
+        await ws.close(code=1008)
+        return
+    await ws.accept()
+    bridges.add(ws)
+    await hub.broadcast({"type": "bridge", "count": len(bridges)})
+    try:
+        while True:
+            m = await ws.receive_json()
+            if m.get("type") == "played":
+                latency.record("bridge_play_ms", float(m.get("ms", 0)))
+                await hub.broadcast({"type": "bridge_played", "id": m.get("id"), "ok": bool(m.get("ok", True)),
+                                     "device": str(m.get("device", ""))[:80]})
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+    finally:
+        bridges.discard(ws)
+        await hub.broadcast({"type": "bridge", "count": len(bridges)})
+
+
+class SayIn(BaseModel):
+    text: str
+    voice_id: Optional[str] = None
+
+
+_meet_dup: dict[str, float] = {}
+
+
+@app.post("/api/meet/say")
+async def meet_say(body: SayIn, key: Optional[str] = None) -> dict:
+    """An approved sentence for the meeting: every connected desktop bridge speaks it into its virtual mic."""
+    check_key(key)
+    text = body.text.strip()[:500]
+    if not text:
+        raise HTTPException(400, "Nothing to say.")
+    from . import guards
+    k, now = guards.normalize_line(text), time.time()
+    if now - _meet_dup.get(k, 0) < 10:
+        return {"ok": False, "reason": "You just said that.", "bridges": len(bridges)}
+    _meet_dup[k] = now
+    msg = {"type": "say", "id": secrets.token_hex(4), "text": text, "voice_id": body.voice_id or hub.voice_id}
+    dead = []
+    for b in list(bridges):
+        try:
+            await b.send_json(msg)
+        except Exception:
+            dead.append(b)
+    for b in dead:
+        bridges.discard(b)
+    return {"ok": True, "id": msg["id"], "bridges": len(bridges)}
+
+
 class TtsIn(BaseModel):
     text: str
     voice_id: Optional[str] = None
+    fmt: str = "mp3"                # mp3 (browser) | pcm (bridge: raw 16-bit mono 22.05 kHz)
 
 
 @app.post("/api/tts")
@@ -600,13 +668,13 @@ async def tts(body: TtsIn, key: Optional[str] = None) -> Response:
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.post(
             f"https://api.elevenlabs.io/v1/text-to-speech/{vid}",
-            params={"output_format": "mp3_44100_128"},
+            params={"output_format": "pcm_22050" if body.fmt == "pcm" else "mp3_44100_128"},
             headers={"xi-api-key": settings.elevenlabs_api_key, "accept": "audio/mpeg"},
             json={"text": body.text[:500], "model_id": settings.elevenlabs_model})
     if r.status_code != 200:
         log.warning("tts %s: %s", r.status_code, r.text[:200])
         raise HTTPException(502, "Couldn't make the voice. Your message still goes to the chat.")
-    return Response(r.content, media_type="audio/mpeg")
+    return Response(r.content, media_type="audio/pcm" if body.fmt == "pcm" else "audio/mpeg")
 
 
 @app.exception_handler(Exception)

@@ -224,3 +224,40 @@ def test_voice_string_v4_and_tags():
         assert 'partialPrompts="true"' in twiml and 'interruptible="any"' in twiml and 'echoPromptFiltering="true"' in twiml
     finally:
         s.tts_model, s.tts_voice_settings = old
+
+
+def test_dial_rate_limit_and_bridge():
+    from app import config, main
+    main.recent_dials.clear()
+    old = config.settings.dial_max_per_min, config.settings.max_live_calls
+    config.settings.dial_max_per_min, config.settings.max_live_calls = 2, 99
+    try:
+        with TestClient(app) as c:
+            assert c.post("/api/calls", json={"number": "4135550150"}).status_code == 200
+            assert c.post("/api/calls", json={"number": "4135550151"}).status_code == 200
+            r = c.post("/api/calls", json={"number": "4135550152"})
+            assert r.status_code == 429 and "Wait" in r.json()["detail"]
+            # Desktop bridge: an approved sentence reaches it once; a repeat within 10 s doesn't.
+            with c.websocket_connect("/ws/bridge") as b:
+                r = c.post("/api/meet/say", json={"text": "I think Friday works."}).json()
+                assert r["ok"] and r["bridges"] == 1
+                m = b.receive_json()
+                assert m["type"] == "say" and m["text"] == "I think Friday works."
+                assert c.post("/api/meet/say", json={"text": "I think Friday works."}).json()["ok"] is False
+                assert c.get("/api/health").json()["bridges"] == 1
+    finally:
+        config.settings.dial_max_per_min, config.settings.max_live_calls = old
+        main.recent_dials.clear()
+
+
+def test_relay_ended_reconnects_only_on_failure():
+    with TestClient(app) as c:
+        from app import config, main
+        main.recent_dials.clear()
+        config.settings.max_live_calls = 99      # earlier tests leave calls open
+        sid = c.post("/api/calls", json={"number": "4135550160"}).json()["sid"]
+        r = c.post(f"/twilio/relay-ended/{sid}", data={"SessionStatus": "failed", "CallStatus": "in-progress", "ErrorCode": "64105"})
+        assert "ConversationRelay" in r.text
+        sid2 = c.post("/api/calls", json={"number": "4135550161"}).json()["sid"]
+        r = c.post(f"/twilio/relay-ended/{sid2}", data={"SessionStatus": "completed", "CallStatus": "completed"})
+        assert "ConversationRelay" not in r.text and sessions[sid2].state == "ENDED"

@@ -180,7 +180,7 @@ def global_checks(call: Call) -> dict[str, tuple[bool, str]]:
     seen: dict[str, float] = {}
     for t, kind, text in log:
         k = guards.normalize_line(text)
-        if k in seen and t - seen[k] < 10 and kind != "repeat":
+        if k in seen and t - seen[k] < 10 and kind not in ("repeat", "fact"):   # caller asked again
             dups.append(text)
         seen[k] = t
     out["duplicate"] = (not dups, "; ".join(dups))
@@ -513,6 +513,93 @@ async def c_hedge(brain):
     d2 = await sign(call, ["MAYBE", "COME"], writer_says="Yeah, I'll be there!")
     return call, {"unsigned hedge blocked/fixed": (d1.blocked or not guards.hedge_guard(d1.text, []).problems, d1.text),
                   "signed MAYBE kept": (d2.blocked or "maybe" in d2.text.lower(), d2.text)}
+
+
+@case("Restaurant order", "\"Not yet\" on the confirm sheet says nothing")
+async def c_not_yet(brain):
+    call = await make_call(brain, PIZZA, "outgoing", ORDER_NOTE)
+    await caller(call, "That's $23.40 total. Should I place the order?")
+    await tap_chip(call, 0)
+    r = await call.c.confirm("later", confirms(call)[-1]["hash"])
+    await wait(4)
+    replies = [t for _, k, t in spoken(call) if k == "reply"]
+    return call, {"closed": (r.get("ok") is True, str(r)), "nothing spoken": (not replies, str(replies)),
+                  "draft kept": (call.c.draft is not None, "")}
+
+
+@case("Restaurant order", "quantity: invented number blocked")
+async def c_quantity(brain):
+    call = await make_call(brain, PIZZA, "outgoing", ORDER_NOTE)
+    await caller(call, "How many wings do you want, six or twelve?")
+    d = await sign(call, ["SIX"], writer_says="Let's do twenty wings, please.")
+    r = await send_draft(call)
+    await wait(8)
+    said = [t for _, k, t in spoken(call) if k == "reply"]
+    return call, {"no 'twenty' spoken": (not any("twenty" in t.lower() or "20" in t for t in said), str(said)),
+                  "blocked or rewritten": (d.blocked or "six" in d.text.lower(), d.text)}
+
+
+@case("Doctor's appointment", "date: invented day blocked")
+async def c_date(brain):
+    call = await make_call(brain, DOC, "outgoing", "name Shruti")
+    await caller(call, "What day works best for you?")
+    d = await sign(call, ["TUESDAY", "MORNING"], writer_says="Friday morning would be great.")
+    return call, {"friday not allowed": (d.blocked or "friday" not in d.text.lower(), d.text)}
+
+
+@case("Doctor's appointment", "name: invented name blocked")
+async def c_name(brain):
+    call = await make_call(brain, DOC, "outgoing", "")
+    await caller(call, "Who is the appointment for?")
+    d = await sign(call, ["NAME"], writer_says="It's for Priya Sharma.")
+    r = await send_draft(call)
+    await wait(8)
+    said = [t for _, k, t in spoken(call) if k == "reply"]
+    return call, {"blocked or rewritten without the name": (d.blocked or "priya" not in d.text.lower(), d.text),
+                  "name never spoken": (not any("Priya" in t for t in said), f"{said} {r}")}
+
+
+@case("Doctor's appointment", "appointment: declining needs no confirm")
+async def c_decline(brain):
+    call = await make_call(brain, DOC, "outgoing", "name Shruti")
+    await caller(call, "We can book you for Thursday at 2. Should I confirm that?")
+    d = await sign(call, ["NO", "THANK-YOU"])
+    return call, {"negation kept": (guards.has_negation(d.text), d.text), "quick, not confirm": (d.level == QUICK, d.level)}
+
+
+@case("Call a friend", "uncertain recognition: blocked draft can't be sent")
+async def c_uncertain(brain):
+    call = await make_call(brain, JAY, "outgoing")
+    await caller(call, "Are you free tomorrow?")
+    d = await sign(call, ["MAYBE"], writer_says="Yes, definitely, see you at 5!")
+    r = await send_draft(call) if d.blocked else {"ok": False}
+    await wait(6)
+    said = [t for _, k, t in spoken(call) if k == "reply"]
+    return call, {"certain sentence not spoken": (not any("definitely" in t for t in said), str(said)),
+                  "hedge kept or blocked": (d.blocked or "maybe" in d.text.lower(), d.text), "refused": (r.get("ok") is False, str(r))}
+
+
+@case("Call a friend", "cancelled response: cleared draft is never spoken")
+async def c_cancel(brain):
+    call = await make_call(brain, JAY, "outgoing")
+    await caller(call, "Want to come over Saturday?")
+    d = await sign(call, ["YES", "SATURDAY", "COME"])
+    await call.c.clear_draft()
+    stale = await call.c.send(d.text, "draft", d.signs, d.id, hash=d.hash)
+    await wait(6)
+    said = [t for _, k, t in spoken(call) if k == "reply"]
+    return call, {"old draft refused": (stale.get("ok") is False, str(stale)), "nothing spoken": (not said, str(said))}
+
+
+@case("Pharmacy pickup", "repeated question: answered each time it is asked")
+async def c_repeat_q(brain):
+    call = await make_call(brain, PHARM, "outgoing", "name Shruti")
+    await caller(call, "Can I get a name?")
+    await wait(9)
+    await caller(call, "Sorry, what was the name again?")
+    await wait(9)
+    facts = [x for _, k, x in spoken(call) if k in ("fact", "repeat")]
+    return call, {"one answer per question": (len(facts) == 2, str(facts))}
 
 
 # ------------------------------------------------------------------ guard unit cases

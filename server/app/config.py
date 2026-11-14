@@ -49,6 +49,10 @@ class Settings:
     # Optional shared key for the signer app (?key=... once, kept in the browser).
     app_access_key: str = field(default_factory=lambda: os.getenv("APP_ACCESS_KEY", ""))
 
+    # Toll-fraud protection: dial limits for the whole server.
+    dial_max_per_min: int = field(default_factory=lambda: int(os.getenv("DIAL_MAX_PER_MIN", "10")))
+    max_live_calls: int = field(default_factory=lambda: int(os.getenv("MAX_LIVE_CALLS", "3")))
+
     ring_timeout_s: int = field(default_factory=lambda: int(os.getenv("RING_TIMEOUT_S", "35")))
     static_dir: str = field(default_factory=lambda: os.getenv("STATIC_DIR", ""))
     log_dir: str = field(default_factory=lambda: os.getenv("LOG_DIR", "logs"))
@@ -70,7 +74,7 @@ class Settings:
     @property
     def expressive_tts(self) -> bool:
         """ElevenLabs v3/v4: no SSML, no speed; natural-language audio tags like [warmly] go in the text."""
-        return self.tts_model.lower() in {"v3", "v4"}
+        return self.tts_model.lower() in {"v3", "v4", "v4_turbo", "v3_conversational"}
 
     def voice_string(self, voice_id: str | None) -> str:
         vid = voice_id or self.default_voice_id
