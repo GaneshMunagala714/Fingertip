@@ -172,3 +172,33 @@ ISLR 1st place: MIT (model card). SignBart-ASL-2730: no license declared on the 
 GitHub repo. Fine for a hackathon demo; ask the authors before any redistribution or product use.
 MediaPipe models: Apache 2.0. ASL Citizen poses were used only to check the pipeline locally and
 are not committed.
+
+## D-028 · ConversationRelay checked against Twilio's docs (Nov 14)
+With twilio.com reachable, compared `relay.py` to websocket-messages, twiml/connect/conversationrelay,
+voice-configuration and onboarding. Message shapes, attribute names, the `VOICE-v4` format and audio
+tags all matched. Changes: added `ignoreBackchannel` (a caller's "uh-huh" no longer cuts a sentence
+off); reconnect decision uses `SessionStatus == "failed"`; expressive models now include `v4_turbo`
+and `v3_conversational`. Still unverified: behaviour on a real call, and which URL form the handshake signs.
+
+## D-029 · Meeting voice on the Gemini key
+The team has no separate TTS credits, and meetings can't use Twilio's voice. `/api/tts` uses Gemini
+speech generation (`gemini-3.8-flash-lite-tts`, Interactions API, from Google's current docs) and
+returns WAV; ElevenLabs is used instead if its key is set. Never called live.
+
+## D-030 · Desktop bridge instead of a browser trick for Zoom and Teams
+A web page can't create a system microphone. `bridge/sign2speak_bridge.py` waits on `/ws/bridge` for
+approved sentences and plays them into VB-CABLE or BlackHole. It never captures audio, so it can't echo.
+Sentences are de-duplicated by ID and by text (10 s). Audio output is untested here.
+
+## D-031 · Gesture Synth design
+Separate Playground tab, unreachable during a call. Notes snap to a pentatonic scale so nothing sounds
+wrong. Pinch = note, held open palm = chord, height = brightness. One Euro smoothing plus hysteresis on
+pinch and on lane edges stop stray notes. Every note is also a colour burst and a vibration pulse, and
+there is a sound-off mode: it is meant to be seen and felt, not only heard. Touch works without a camera.
+
+## D-032 · A repeated caller question is always answered
+The bench found that "what was the name again?" within 10 s got silence, because the duplicate guard
+blocked the same sentence. Note-fact answers to a new caller question now bypass that guard.
+
+## D-033 · Dial limits
+`DIAL_MAX_PER_MIN` (10) and `MAX_LIVE_CALLS` (3) protect the Twilio account from runaway or abusive dialing.

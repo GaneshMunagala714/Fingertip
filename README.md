@@ -1,5 +1,7 @@
 # Sign2Speak
 
+> **Picking this up? Start with [HANDOFF.md](HANDOFF.md):** current status, what is unverified, and the first hour on site.
+
 A Deaf person who signs ASL can make and take a real phone call. They read the other person's
 words live, sign or type back, and the other person hears a natural voice. The hearing person
 uses their ordinary phone and installs nothing.
