@@ -52,6 +52,7 @@ Twilio at the server.
 | 10 | **A second person on a second device in Google Meet**, and Chrome on this laptop | Test the Meet extension for real: chat posting and the voice in the meeting | After 9 |
 | 11 | **VB-CABLE installed on this laptop** (free, from vb-audio.com; a driver install, so please do it yourself) | Zoom and Teams voice through the desktop bridge | Only if we demo Zoom or Teams |
 | 12 | **A Spanish (or French or Portuguese) speaker** for one short call | Verify calls in other languages | Optional |
+| 12b | **Three or four real 15-second clips** of real problems (a blinking router, a dripping tap, a cracked screen, a parcel label) | Measure Show it's accuracy, box placement and wait time with real Gemini before we demo it | As soon as the Gemini key is in |
 | 13 | **ElevenLabs API key** | Only to use ElevenLabs instead of Gemini speech for the *meeting* voice. Phone calls don't need it | Optional |
 | 14 | **Someone Deaf, hard of hearing or nonspeaking** willing to try it for 10 minutes | The spec asks us to validate with real users and use their words | Before the pitch, if at all possible |
 

@@ -5,6 +5,7 @@ import { AfterCall, Calling, InCall, Incoming } from './screens/Call'
 import { InPerson } from './screens/InPerson'
 import { MeetingsPage } from './screens/Meet'
 import { Playground } from './screens/Playground'
+import { ShowFlow } from './screens/Show'
 import { ContactPage, ErrandNote, Home, Settings, Tabs, VoicePicker, type Prefs, type Tab } from './screens/Setup'
 import { initial, reduce } from './store'
 import { load, save } from './storage'
@@ -17,6 +18,7 @@ type Route =
   | { name: 'voice'; back: Route }
   | { name: 'inperson' }
   | { name: 'settings' }
+  | { name: 'show' }
 
 export default function App() {
   const [s, dispatch] = useReducer(reduce, initial)
@@ -127,6 +129,8 @@ export default function App() {
         return <VoicePicker current={voiceId} onDone={(id) => { setVoiceId(id); save('voice', id); setRoute(route.back) }} />
       case 'inperson':
         return <InPerson myName={myName} onDone={() => setRoute({ name: 'home' })} />
+      case 'show':
+        return <ShowFlow onClose={() => setRoute({ name: 'home' })} />
       case 'settings':
         return <Settings prefs={prefs} voiceName={voiceName} onChange={setPrefs}
           onVoice={() => setRoute({ name: 'voice', back: { name: 'settings' } })} onBack={() => setRoute({ name: 'home' })} />
@@ -158,6 +162,7 @@ export default function App() {
             startCall(known ?? { id: '', name: '', number: n, knows_sign: false, kind: 'person' })
           }}
           onInPerson={() => setRoute({ name: 'inperson' })}
+          onShow={() => setRoute({ name: 'show' })}
           onSettings={() => setRoute({ name: 'settings' })} />
     }
   }, [ringing, active, ended, route, contacts, recents, online, voiceId, voiceName, firstWords, dialError, dialing, startCall, myName, tab, prefs])

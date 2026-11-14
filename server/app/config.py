@@ -44,6 +44,14 @@ class Settings:
     face_tone: bool = field(default_factory=lambda: _bool("FACE_TONE", False))
     gemini_timeout_s: float = field(default_factory=lambda: float(os.getenv("GEMINI_TIMEOUT_S", "2.5")))
 
+    # Show it (video -> evidence-linked facts with overlays). See server/app/show.py.
+    gemini_video_model: str = field(default_factory=lambda: os.getenv("GEMINI_VIDEO_MODEL", "gemini-3.8-flash"))
+    show_fps: float = field(default_factory=lambda: float(os.getenv("SHOW_FPS", "4")))
+    show_timeout_s: float = field(default_factory=lambda: float(os.getenv("SHOW_TIMEOUT_S", "90")))
+    show_dir: str = field(default_factory=lambda: os.getenv("SHOW_DIR", "data/shows"))
+    show_ttl_hours: float = field(default_factory=lambda: float(os.getenv("SHOW_TTL_HOURS", "24")))
+    show_max_mb: int = field(default_factory=lambda: int(os.getenv("SHOW_MAX_MB", "60")))
+
     # Meet extension only (calls use ConversationRelay): direct ElevenLabs TTS for the Meet mic.
     elevenlabs_api_key: str = field(default_factory=lambda: os.getenv("ELEVENLABS_API_KEY", ""))
     gemini_tts_model: str = field(default_factory=lambda: os.getenv("GEMINI_TTS_MODEL", "gemini-3.8-flash-lite-tts"))

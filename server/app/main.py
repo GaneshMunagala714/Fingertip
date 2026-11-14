@@ -27,7 +27,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -35,6 +35,7 @@ from twilio.request_validator import RequestValidator
 
 from . import relay, translate
 from .ai import make_brain
+from .show import VIDEO_TYPES, ShowStore, make_video_engine, public_record, shared_record
 from .config import settings
 from .controller import ENDED, RINGING, Contact, Controller
 from .latency import latency
@@ -92,7 +93,8 @@ by_call_sid: dict[str, str] = {}
 relay_reconnects: dict[str, int] = {}
 recent_dials: list[float] = []
 bridges: set[WebSocket] = set()      # desktop bridges (virtual microphone for Zoom / Teams / Meet)
-state = {"telephony": None, "brain": None, "signs": None}
+state = {"telephony": None, "brain": None, "signs": None, "video": None}
+shows = ShowStore(settings.show_dir)
 
 
 def new_session(contact: Contact, direction: str, note: str = "") -> Controller:
@@ -166,6 +168,7 @@ async def lifespan(app: FastAPI):
     latency.configure(settings.log_dir)
     state["telephony"] = make_telephony()
     state["brain"] = make_brain()
+    state["video"] = make_video_engine()
     from .signs.service import SignService
     state["signs"] = await asyncio.to_thread(SignService)
     if hasattr(state["brain"], "check"):
@@ -211,6 +214,7 @@ async def health() -> dict:
                    "model_ok": getattr(brain, "ok", None), "error": getattr(brain, "last_error", "")},
         "brain": getattr(brain, "name", "?"),
         "languages": {"available": multilingual_ready(), "list": translate.languages()},
+        "show": {"available": state.get("video") is not None, "model": settings.gemini_video_model},
         "voice": settings.voice_string(hub.voice_id),
         "active_calls": sum(1 for c in sessions.values() if c.state != ENDED),
         "app_connected": len(hub.sockets),
@@ -635,6 +639,107 @@ async def signs_sentence(body: SentenceIn, key: Optional[str] = None) -> dict:
 
 
 # ---------------------------------------------------------------- Meet extension voice (stretch)
+
+# ---------------------------------------------------------------- Show it (video -> facts + overlays)
+
+@app.post("/api/show")
+async def show_create(file: UploadFile = File(...), duration: float = Form(0.0), context: str = Form(""),
+                      title: str = Form(""), key: Optional[str] = None) -> dict:
+    """A short clip -> facts tied to a time and a place in the frame. Needs Gemini."""
+    check_key(key)
+    engine = state.get("video")
+    if engine is None:
+        raise HTTPException(400, "Show it needs the Gemini key on the server.")
+    mime = (file.content_type or "").split(";")[0].lower()
+    ext = VIDEO_TYPES.get(mime)
+    if not ext:
+        raise HTTPException(400, "That file isn't a video we can read (MP4, MOV or WebM).")
+    data = await file.read(settings.show_max_mb * 1024 * 1024 + 1)
+    if len(data) > settings.show_max_mb * 1024 * 1024:
+        raise HTTPException(413, f"That video is too big. Keep it under {settings.show_max_mb} MB (about a minute).")
+    if not data:
+        raise HTTPException(400, "The video was empty.")
+    sid, path = shows.new(data, ext)
+    try:
+        result = await engine.analyze(data, mime, path, duration, context)
+    except Exception as e:
+        log.warning("show analysis failed: %s", str(e)[:300])
+        shows.delete(sid)
+        raise HTTPException(502, "Couldn't read that video. Try again, or film a little closer and steadier.") from e
+    record = {"id": sid, "share_token": secrets.token_urlsafe(18), "share": False, "created": time.time(),
+              "duration": duration, "title": title[:80], "context": context[:300], "mime": mime,
+              **result.model_dump()}
+    shows.save(sid, record)
+    return public_record(record)
+
+
+def _show(sid: str) -> dict:
+    try:
+        return shows.load(sid)
+    except KeyError:
+        raise HTTPException(404, "That video isn't here any more.")
+
+
+@app.get("/api/show/{sid}")
+async def show_get(sid: str, key: Optional[str] = None) -> dict:
+    check_key(key)
+    return public_record(_show(sid))
+
+
+@app.get("/api/show/{sid}/video")
+async def show_video(sid: str, key: Optional[str] = None) -> FileResponse:
+    check_key(key)
+    r = _show(sid)
+    return FileResponse(shows.video(sid), media_type=r.get("mime", "video/mp4"))
+
+
+class ShareIn(BaseModel):
+    share: bool
+
+
+@app.post("/api/show/{sid}/share")
+async def show_share(sid: str, body: ShareIn, key: Optional[str] = None) -> dict:
+    """Off by default. On: anyone with the link can watch this one clip and its facts."""
+    check_key(key)
+    r = _show(sid)
+    r["share"] = body.share
+    shows.save(sid, r)
+    return {"ok": True, "share": r["share"], "share_token": r["share_token"] if r["share"] else None}
+
+
+@app.delete("/api/show/{sid}")
+async def show_delete(sid: str, key: Optional[str] = None) -> dict:
+    check_key(key)
+    _show(sid)
+    shows.delete(sid)
+    return {"ok": True}
+
+
+@app.get("/api/shared/{token}")
+async def shared_get(token: str) -> dict:
+    try:
+        return shared_record(shows.by_share(token))
+    except KeyError:
+        raise HTTPException(404, "This link has expired or was turned off.")
+
+
+@app.get("/api/shared/{token}/video")
+async def shared_video(token: str) -> FileResponse:
+    try:
+        r = shows.by_share(token)
+    except KeyError:
+        raise HTTPException(404, "This link has expired or was turned off.")
+    return FileResponse(shows.video(r["id"]), media_type=r.get("mime", "video/mp4"))
+
+
+@app.post("/api/calls/{sid}/show/{show_id}")
+async def show_attach(sid: str, show_id: str, key: Optional[str] = None) -> dict:
+    """Use a clip's facts in this call: they become approvable replies and allowed facts for the guards."""
+    check_key(key)
+    c = get_session(sid)
+    r = _show(show_id)
+    return await c.attach_video(r["facts"], r["summary_say"], show_id)
+
 
 @app.websocket("/ws/bridge")
 async def ws_bridge(ws: WebSocket, key: Optional[str] = None) -> None:

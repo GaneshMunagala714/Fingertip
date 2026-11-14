@@ -95,6 +95,9 @@ export function reduce(s: State, m: any): State {
     case 'call_status':
       n = { ...c, carrier: m.status }
       break
+    case 'video_facts':
+      n = { ...c, video: { show_id: m.show_id, facts: m.facts, summary: m.summary } }
+      break
     case 'error':
       n = { ...c, notice: { kind: 'error', text: m.message } }
       break

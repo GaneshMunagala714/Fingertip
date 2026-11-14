@@ -26,6 +26,15 @@ So nothing that needs them can be "Working and verified". Updated 2026-11-14.
 | Voice presets (4 ElevenLabs voices through Twilio) | Implemented but unverified | Voice IDs not checked against ElevenLabs |
 | Native dialer replacement, cellular audio | Cut | Not possible in the time; it's a web app (PWA) using Twilio VoIP/PSTN |
 
+## Show it (Gemini video → evidence-linked facts, D-035)
+
+| Feature | Status | Evidence / what's missing |
+|---|---|---|
+| Film a clip → facts with time + box → overlay player (tooltips, timeline, tap to jump) | Implemented; plumbing verified with a scripted engine | Browser check with a synthetic 20 s clip: the box landed within ~4 px of the drawn shape at 7 s. **Gemini itself never called** (no key) |
+| Use in a call: summary as a draft, "Say this" per fact, facts allowed for the guards | Implemented and tested (server tests + browser, fake line) | Attaching never skips ringing/connecting (bug found and fixed); invented numbers still blocked |
+| Share link for the other person (off by default), delete now, 24 h expiry | Implemented and tested (server tests + browser) | |
+| Latency and accuracy on real clips | Not measured | Needs the Gemini key and a few real clips |
+
 ## Signing
 
 | Feature | Status | Evidence / what's missing |

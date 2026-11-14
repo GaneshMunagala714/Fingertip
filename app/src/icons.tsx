@@ -10,6 +10,9 @@ export const HangUp = ({ size }: P) => (
 export const Keyboard = ({ size }: P) => (
   <svg {...s(size)}><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M18 13h.01M8 16h8M10 13h4" /></svg>
 )
+export const Video = ({ size }: P) => (
+  <svg {...s(size)}><rect x="2" y="6" width="14" height="12" rx="2" /><path d="m22 8-6 4 6 4V8z" /></svg>
+)
 export const Send = ({ size }: P) => (
   <svg {...s(size)}><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z" /></svg>
 )

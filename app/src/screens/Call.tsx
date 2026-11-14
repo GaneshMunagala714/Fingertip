@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { NetworkError, newRequestId, post } from '../api'
+import { NetworkError, newRequestId, post, withKey } from '../api'
+import { ShowFlow, ShowPlayer } from './Show'
 import { DEFAULT_QUICK, INTRO, mmss, VOICES } from '../data'
-import { Alert, ArrowUp, HangUp, Hand, Keyboard, Music, Phone } from '../icons'
+import { Alert, ArrowUp, HangUp, Hand, Keyboard, Music, Phone, Video as VideoIcon } from '../icons'
 import type { CallView, Line } from '../types'
 import { pretty, useSigning } from '../sign/useSigning'
 import { Avatar } from './Setup'
@@ -178,6 +179,7 @@ export function InCall({ call, online, dispatch, signing: signingProp = null, un
   if (call.state === 'ON_HOLD' && holdStart.current === null) holdStart.current = Date.now()
   if (call.state !== 'ON_HOLD') holdStart.current = null
   const holdTimer = useTimer(holdStart.current)
+  const [showing, setShowing] = useState(false)       // Show it: film something instead of describing it
 
   // A person came back from hold: flash and buzz.
   useEffect(() => {
@@ -303,9 +305,19 @@ export function InCall({ call, online, dispatch, signing: signingProp = null, un
         <small>Nothing is said until you pick.</small>
       </div>)
   }
+  if (call.video && call.video.facts.length > 0) {
+    items.push(
+      <div key="video" className="vidcard">
+        <span className="lab">From your video · check a point, then say it</span>
+        <ShowPlayer compact src={preview ? null : withKey(`/api/show/${call.video.show_id}/video`)} facts={call.video.facts}
+                    previewTime={preview ? call.video.facts[0]?.t : undefined}
+                    onSay={(f) => send(f.say, 'chip')} />
+      </div>)
+  }
   if (draft && mode !== 'edit' && !signing && !unsure) {
     const under = draft.blocked ? (draft.problems[0] ? `This ${draft.problems[0]} · tap to change` : 'Check this · tap to change')
       : draft.source === 'signs' ? 'From your signing · tap to change'
+      : draft.source === 'video' ? 'From your video · check it against the clip · tap to change'
       : draft.source === 'rest' ? "The part they didn't hear · tap to change" : 'Tap to change'
     items.push(
       <div key="draft" className="draft-wrap">
@@ -385,13 +397,17 @@ export function InCall({ call, online, dispatch, signing: signingProp = null, un
   } else if (myTurn) {
     dock = <>{chipRow}{!chipRow && mineRow}<div className="dockrow">
       <div className="status"><Wave on={false} />Your turn: sign, tap, or type</div>
+      <button className="sq" onClick={() => setShowing(true)} aria-label="Show it: film something instead of describing it"><VideoIcon /></button>
       <button className="sq" onClick={() => setMode('type')} aria-label="Type instead"><Keyboard /></button></div></>
   } else {
     const waiting = st === 'CONNECTED' || st === 'RINGING'
     dock = <>{!waiting && mineRow}<div className="dockrow">
       <div className="status"><Wave on={st === 'CALLER_TALKING'} />{waiting ? 'Connecting...' : `Listening to ${name}...`}</div>
+      {!waiting && <button className="sq" onClick={() => setShowing(true)} aria-label="Show it: film something instead of describing it"><VideoIcon /></button>}
       <button className="sq" onClick={() => setMode('type')} aria-label="Type instead"><Keyboard /></button></div></>
   }
+
+  if (showing && !preview) return <ShowFlow callSid={call.sid} onClose={() => setShowing(false)} />
 
   return (
     <div className={`screen wide ${flash ? 'flash' : ''}`} style={{ ['--cap' as any]: capScale }}>

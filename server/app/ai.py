@@ -485,6 +485,7 @@ class GeminiBrain:
                 "or the note didn't mention). If a note fact answers the question, give its key.\n"
                 f"Contact: {context.get('contact_name')} ({'family/friend' if context.get('casual') else 'business'})\n"
                 f"Note facts: {json.dumps(context.get('note_facts', []))}\n"
+                f"Facts from the signer's video (a chip may repeat one word for word): {json.dumps(context.get('video_facts', []))}\n"
                 f"Recent lines: {json.dumps(context.get('recent', [])[-6:])}\n"
                 f"Caller just said: {caller_text!r}", TurnAnalysis, timeout=2.0, job="turn_analyzer")
         except Exception as e:
@@ -513,6 +514,7 @@ class GeminiBrain:
                 f"Talking to: {context.get('contact_name')} ({'family/friend, casual' if context.get('casual') else 'business, polite'})\n"
                 f"Caller just said: {caller_text!r}\n"
                 f"Note facts you may use: {json.dumps([f['value'] for f in context.get('note_facts', [])])}\n"
+                f"Facts from the signer's video you may use: {json.dumps(context.get('video_facts', []))}\n"
                 "Example: signs YES SUNDAY COME, casual -> \"Yeah! I'll be there Sunday.\"",
                 Reply, temperature=0.5, timeout=1.5, job="reply_writer", model=self.reply_model)
             return r.sentence.strip()

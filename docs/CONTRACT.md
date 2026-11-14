@@ -50,6 +50,9 @@ only when the request got no answer at all.
 | Signs for the current reply | `POST /api/calls/{sid}/signs` |
 | Select voice, heads-up style | WebSocket `hello` (`voice_id`, `intro_style`) |
 | Speak into a meeting | `POST /api/meet/say` (desktop bridge) or the Meet extension |
+| Show it: analyze a clip | `POST /api/show` (multipart: `file`, `duration`, `context`, `title`) → facts with `t`, `t_end`, `box` |
+| Show it: use in a call | `POST /api/calls/{sid}/show/{show_id}` → event `video_facts` + a `draft` (`source: video`) |
+| Show it: share / delete | `POST /api/show/{id}/share` `{share}` · `DELETE /api/show/{id}` · read-only `GET /api/shared/{token}` |
 
 ## Simulation vs real
 

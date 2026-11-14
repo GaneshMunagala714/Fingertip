@@ -118,6 +118,8 @@ class Controller:
         self.analysis: Optional[TurnAnalysis] = None
         self.note_facts: list[dict] = []
         self.note_confirm: list[str] = []
+        self.video_facts: list[dict] = []      # Show it: facts from the signer's clip (never auto-spoken)
+        self.video_id = ""
         self.order_given = False
         self.intro_done = contact.knows_sign
         self.started_at: Optional[float] = None
@@ -179,6 +181,7 @@ class Controller:
             "contact_name": self.contact.name,
             "casual": self.contact.casual,
             "note_facts": self.note_facts,
+            "video_facts": [f["say"] for f in self.video_facts],
             "order_given": self.order_given,
             "recent": [{"who": l.who, "text": l.text} for l in self.lines[-8:]],
         }
@@ -345,9 +348,27 @@ class Controller:
         await self._set_state(self._idle_state())
         await self.emit({"type": "turn", "analysis": a.model_dump()})
 
+    @property
+    def _video_text(self) -> str:
+        return " ".join(f["say"] for f in self.video_facts)
+
+    async def attach_video(self, facts: list[dict], summary: str, show_id: str) -> dict:
+        """Show it: the signer's clip becomes approvable replies and allowed facts. Nothing is said here."""
+        if self.state == ENDED:
+            return {"ok": False, "reason": "The call has ended."}
+        self.video_facts = [f for f in facts if f.get("say")]
+        self.video_id = show_id
+        await self.emit({"type": "video_facts", "show_id": show_id, "facts": self.video_facts, "summary": summary})
+        if summary:
+            self.draft = self._check_draft(summary, [], source="video", tone=self.default_tone)
+            await self.emit({"type": "draft", "draft": asdict(self.draft)})
+            if self.state in (LISTENING, YOUR_TURN):       # never jump past ringing / connecting
+                await self._set_state(DRAFT_READY)
+        return {"ok": True, "facts": len(self.video_facts), "draft": asdict(self.draft) if summary and self.draft else None}
+
     def _safe_chips(self, chips: list[str], caller_text: str) -> list[str]:
         """Chips are AI-written: drop any that invent a fact."""
-        sources = [caller_text, self.note, " ".join(f["value"] for f in self.note_facts)]
+        sources = [caller_text, self.note, " ".join(f["value"] for f in self.note_facts), self._video_text]
         out = [c for c in chips if guards.fact_guard(c, sources).ok]
         if not out:
             out = ["Could you say that again?"]
@@ -410,15 +431,20 @@ class Controller:
         caller = self._last_caller_text
         chips = " ".join(self.analysis.chips) if self.analysis else ""
         if source == "signs":
-            fg = guards.fact_guard(sentence, [guards.gloss_text(signs), caller, self.note, chips])
+            fg = guards.fact_guard(sentence, [guards.gloss_text(signs), caller, self.note, chips, self._video_text])
             ng = guards.negation_guard(sentence, signs)
             hg = guards.hedge_guard(sentence, signs)
             d.problems = fg.problems + ng.problems + hg.problems
             d.blocked = bool(d.problems)
+        elif source == "video":
+            # The opening summary is model-written: every number, day and name must be in the facts.
+            fg = guards.fact_guard(sentence, [self._video_text, self.note, caller])
+            d.problems = fg.problems
+            d.blocked = bool(d.problems)
         flag = bool(self.analysis and self.analysis.involves_commitment)
         needs, summary = guards.commitment_guard(sentence, caller, flag)
         if not needs and self.analysis and self.analysis.question_type == "info_request" and source != "fact":
-            new_facts = guards.fact_guard(sentence, [caller, self.note]).unsupported
+            new_facts = guards.fact_guard(sentence, [caller, self.note, self._video_text]).unsupported
             if new_facts:
                 needs, summary = True, "This shares something that isn't in your note"
         if needs:

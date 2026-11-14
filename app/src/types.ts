@@ -27,6 +27,30 @@ export type Line = {
   ts: number
 }
 
+/** Show it: one fact from the signer's video, tied to a time and (optionally) a place in the frame. */
+export type VideoFact = {
+  id: string
+  say: string
+  label: string
+  kind: 'problem' | 'reading' | 'label' | 'object' | 'action' | 'other'
+  t: number
+  t_end: number
+  /** [ymin, xmin, ymax, xmax], 0-1000 of the video frame; null = not one place. */
+  box: [number, number, number, number] | null
+  sure: boolean
+}
+
+export type ShowRecord = {
+  id: string
+  share_token?: string
+  share?: boolean
+  title?: string
+  duration: number
+  summary_say: string
+  facts: VideoFact[]
+  notes?: string
+}
+
 export type Draft = {
   id: string
   text: string
@@ -67,6 +91,8 @@ export type CallView = {
   editDraft: boolean
   /** Last Twilio call status for an outgoing call (queued, initiated, ringing, in-progress...). Real events only. */
   carrier?: string
+  /** Show it: facts from a clip attached to this call. */
+  video?: { show_id: string; facts: VideoFact[]; summary: string } | null
 }
 
 export type Recent = {

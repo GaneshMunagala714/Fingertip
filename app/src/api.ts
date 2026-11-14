@@ -5,7 +5,7 @@ const urlKey = new URLSearchParams(location.search).get('key')
 if (urlKey) save('key', urlKey)
 const accessKey = (): string => load<string>('key', '')
 
-function withKey(path: string): string {
+export function withKey(path: string): string {
   const k = accessKey()
   return k ? `${path}${path.includes('?') ? '&' : '?'}key=${encodeURIComponent(k)}` : path
 }
@@ -26,6 +26,19 @@ export async function post<T = any>(path: string, body?: unknown): Promise<T> {
       headers: { 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
+  } catch {
+    throw new NetworkError("Couldn't reach the server. Check your connection.")
+  }
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new ApiError(typeof data.detail === 'string' ? data.detail : 'Something went wrong. Please try again.')
+  return data as T
+}
+
+/** multipart/form-data POST (file uploads). Same error handling as post(). */
+export async function postForm<T = any>(path: string, form: FormData): Promise<T> {
+  let res: Response
+  try {
+    res = await fetch(withKey(path), { method: 'POST', body: form })
   } catch {
     throw new NetworkError("Couldn't reach the server. Check your connection.")
   }

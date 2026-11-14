@@ -11,3 +11,6 @@ model/data/
 # Source weights (re-download with model/download_models.sh); the runtime only needs signbart.onnx.
 model/signbart/model.safetensors
 model/islr/model.tflite
+# Show it clips (people's videos): never commit
+data/shows/
+server/data/

@@ -216,3 +216,19 @@ fillers, "still here") are written once per language in `translate.py` and never
 Needs Gemini; without it the app disables the picker and the server refuses non-English dials.
 Translation happens after approval, so the signer sees the translation as it is spoken, not before.
 Unverified live: Twilio's handling of `es-US` / `fr-FR` / `pt-BR` and Gemini translation quality.
+
+## D-035 · Show it: video becomes evidence-linked facts with overlays
+The hardest calls for someone who doesn't speak are the ones where you must *describe* something:
+a leak, a warning light, a damaged parcel. Show it lets them film it instead. One Gemini call
+(`server/app/show.py`, patterned on the team's Process-Annotation engine) returns facts, each with
+the time it's visible and a box in the frame (0-1000, `[ymin, xmin, ymax, xmax]`). The app plays
+the clip with those boxes as tooltips, so every fact is checked against the moment the camera saw
+it. We use Gemini because it takes the whole clip natively, with timestamps and boxes, in one call.
+Safety is the same as the errand note: facts are suggestions, nothing is said without approval, the
+opening summary must pass the fact guard against the facts, and video facts become allowed sources
+for the guards (anything not in them is still blocked). The same annotated clip can be shared as a
+link (off by default) or shown in person. Privacy: the clip goes to Google for analysis, is kept on
+our server for `SHOW_TTL_HOURS` (24) to replay or share, then deleted; "Delete this video now" does
+it immediately. No fake engine in the product: without Gemini the feature says it needs the key.
+Unverified until the key arrives: Gemini's fact quality, box accuracy, latency on 10-60 s clips,
+and the model name `gemini-3.8-flash` (`GEMINI_VIDEO_MODEL`).

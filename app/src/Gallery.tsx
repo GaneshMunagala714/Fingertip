@@ -10,7 +10,8 @@ import { AfterCall, Calling, InCall, Incoming } from './screens/Call'
 import { InPerson } from './screens/InPerson'
 import { MeetPanel } from './screens/Meet'
 import { ContactPage, ErrandNote, Home, Settings, VoicePicker, type Prefs } from './screens/Setup'
-import type { Analysis, CallView, Contact, Draft, Line } from './types'
+import { ShowPlayer } from './screens/Show'
+import type { Analysis, CallView, Contact, Draft, Line, VideoFact } from './types'
 
 const MOM: Contact = { id: 'mom', name: 'Mom', number: '4135550177', knows_sign: true, kind: 'person', style: 'casual', fav: true }
 const TONY: Contact = { id: 'tonys', name: "Tony's Pizza", number: '4135550142', knows_sign: false, kind: 'business', style: 'polite',
@@ -38,6 +39,14 @@ function call(contact: Contact, at: string, o: Partial<CallView> = {}): CallView
 
 const DINNER = "That's great. Are you still coming for dinner on Sunday? Grandpa will be there."
 const noop = () => {}
+
+// Fixture facts in the shape Gemini returns (server/app/show.py). Not real output.
+const FACTS: VideoFact[] = [
+  { id: 'v1', say: 'Water drips from the front-left corner of the door.', label: 'Drip starts here', kind: 'problem', t: 6.2, t_end: 9, box: [620, 80, 820, 260], sure: true },
+  { id: 'v2', say: 'The panel shows error code E24.', label: 'Error E24', kind: 'reading', t: 11, t_end: 14, box: [120, 420, 220, 600], sure: true },
+  { id: 'v3', say: 'There is a puddle under the front of the machine.', label: 'Puddle', kind: 'problem', t: 11.2, t_end: 13, box: [840, 150, 980, 700], sure: false },
+  { id: 'v4', say: 'The label says model DW80R5061.', label: 'Model label', kind: 'label', t: 15.5, t_end: 18, box: [300, 700, 380, 900], sure: true },
+]
 const live = (c: CallView, extra: Record<string, unknown> = {}) => <InCall call={c} online dispatch={noop} preview {...extra} />
 
 const FRAMES: [string, ReactNode, boolean?][] = [
@@ -132,6 +141,14 @@ const FRAMES: [string, ReactNode, boolean?][] = [
   ['25 · Your quick replies, one tap away (no AI involved)', live(call(DRLEE, '00:41', {
     direction: 'outgoing', state: 'LISTENING',
     lines: [L('caller', "Dr. Lee's office, this is Dana. How can I help?"), L('me', "Hi, I'd like to move my appointment.")],
+  }))],
+  ['26 · Show it: every fact pinned to when and where the camera saw it (fixture data, no video)',
+    <div style={{ padding: 12, background: 'var(--card)' }}><ShowPlayer src={null} facts={FACTS} duration={20} previewTime={11.5} /></div>],
+  ['27 · In a call: check a point against the clip, then say it', live(call({ ...DRLEE, id: 'landlord', name: 'Landlord' }, '00:52', {
+    direction: 'outgoing', state: 'DRAFT_READY',
+    lines: [L('caller', "Hi, it's Mark. What's going on?")],
+    video: { show_id: 'fixture', facts: FACTS, summary: '' },
+    draft: D('My dishwasher leaks from the front-left corner of the door, and it shows error E24.', { source: 'video' }),
   }))],
 ]
 

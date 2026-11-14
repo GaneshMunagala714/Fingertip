@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { post } from '../api'
 import { APP_NAME } from '../brand'
 import { ago, avatarTone, CAPTION_SIZES, DEFAULT_QUICK, initials, INTRO_STYLES, introFor, prettyNumber, VOICES, type IntroStyle } from '../data'
-import { Back, Gear, People, Play } from '../icons'
+import { Back, Gear, People, Play, Video as VideoIcon } from '../icons'
 import type { Contact, Recent } from '../types'
 
 export function Avatar({ c, size = '' }: { c: Pick<Contact, 'name' | 'kind' | 'knows_sign' | 'id'>; size?: string }) {
@@ -80,6 +80,7 @@ type HomeProps = {
   onDial: (number: string) => void
   onInPerson: () => void
   onSettings: () => void
+  onShow?: () => void
   tabs?: React.ReactNode
 }
 
@@ -96,7 +97,7 @@ export function Tabs({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
   )
 }
 
-export function Home({ contacts, recents, online, onOpen, onDial, onInPerson, onSettings, tabs }: HomeProps) {
+export function Home({ contacts, recents, online, onOpen, onDial, onInPerson, onSettings, onShow, tabs }: HomeProps) {
   const [sheet, setSheet] = useState<'pad' | 'new' | null>(null)
   const favs = contacts.filter((c) => c.fav)
   const find = (r: Recent) => contacts.find((c) => c.id === r.contactId)
@@ -127,6 +128,12 @@ export function Home({ contacts, recents, online, onOpen, onDial, onInPerson, on
           <span className="ico"><People size={22} /></span>
           <span><b>Talk in person</b><small>Flip your phone so they can read</small></span>
         </button>
+        {onShow && (
+          <button className="cardbox tip" onClick={onShow}>
+            <span className="ico"><VideoIcon size={22} /></span>
+            <span><b>Show it</b><small>Film a problem instead of describing it</small></span>
+          </button>
+        )}
         <div className="label" style={{ marginTop: 6 }}>Recent</div>
         <div>
           {recents.length === 0 && <div className="empty">Your calls will show up here.</div>}

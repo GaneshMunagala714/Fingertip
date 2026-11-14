@@ -335,3 +335,42 @@ select.num-input { appearance: auto; }
 .pg-start p { margin: 0 0 8px; color: #c8ced6; max-width: 380px; font-size: 18px; }
 .pg-start .btn { min-width: 240px; }
 .pg-ghost { background: rgba(255,255,255,.12); color: #fff; }
+
+/* ---------------- Show it: evidence-linked overlays */
+.sp { display: flex; flex-direction: column; gap: 10px; }
+.sp-stagewrap { display: flex; justify-content: center; background: #05070c; border-radius: 14px; overflow: hidden; }
+.sp-stage { position: relative; display: inline-block; max-width: 100%; }
+.sp-stage video, .sp-ph { display: block; max-width: 100%; max-height: 56vh; }
+.sp.compact .sp-stage video, .sp.compact .sp-ph { max-height: 30vh; }
+.sp-ph { width: 640px; aspect-ratio: 16 / 9; background: repeating-linear-gradient(135deg, #10151c 0 14px, #161d27 14px 28px); }
+.sp-ov { position: absolute; inset: 0; pointer-events: none; }
+.sp-box { position: absolute; border: 3px solid #ffd23f; border-radius: 8px; box-shadow: 0 0 0 2px rgba(0,0,0,.55), 0 0 18px rgba(255,210,63,.55); animation: sp-in .25s ease-out; }
+.sp-box.unsure { border-style: dashed; border-color: #ffb08a; }
+.sp-box.focus { border-color: #5ee1ff; box-shadow: 0 0 0 2px rgba(0,0,0,.6), 0 0 22px rgba(94,225,255,.7); }
+.sp-tip { position: absolute; left: -3px; bottom: calc(100% + 6px); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; max-width: 70vw; overflow: hidden; text-overflow: ellipsis;
+  background: #10151c; color: #fff; font: 600 14px/1.2 var(--body); padding: 6px 10px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,.4); }
+.sp-tip.below { bottom: auto; top: calc(100% + 6px); }
+.sp-tip b, .sp-float b, .sp-n, .sp-mark { display: inline-grid; place-items: center; min-width: 22px; height: 22px; border-radius: 99px; background: #ffd23f; color: #10151c; font: 700 13px/1 var(--head); }
+.sp-float { position: absolute; left: 12px; display: inline-flex; gap: 6px; align-items: center; background: rgba(16,21,28,.9); color: #fff; font: 600 14px var(--body); padding: 6px 10px; border-radius: 10px; }
+@keyframes sp-in { from { transform: scale(1.08); opacity: 0 } to { transform: none; opacity: 1 } }
+.sp-line { position: relative; height: 30px; margin: 0 12px; }
+.sp-track { position: absolute; left: 0; right: 0; top: 14px; height: 3px; background: var(--line); border-radius: 3px; }
+.sp-head { position: absolute; top: -5px; width: 3px; height: 13px; background: var(--blue); border-radius: 2px; transform: translateX(-1px); }
+.sp-mark { position: absolute; top: 4px; transform: translateX(-50%); border: 0; min-width: 24px; height: 24px; cursor: pointer; }
+.sp-mark.on { background: #5ee1ff; }
+.sp-facts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.sp-facts li { display: flex; gap: 8px; align-items: stretch; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+.sp-facts li.live { border-color: #e0b100; background: #fff9e5; }
+.sp-facts li.on { border-color: var(--blue); }
+.sp-fact { flex: 1; display: flex; gap: 10px; align-items: flex-start; text-align: left; border: 0; background: none; padding: 10px 12px; font: inherit; color: inherit; min-height: 44px; }
+.sp-body { display: flex; flex-direction: column; gap: 2px; }
+.sp-meta { font-size: 13px; color: var(--ink-2); }
+.sp-meta em { color: var(--amber); font-style: normal; font-weight: 600; }
+.sp-say { font-size: 17px; line-height: 1.35; }
+.sp-saybtn { align-self: center; margin-right: 8px; min-height: 44px; white-space: nowrap; }
+.show-drop { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 28px 16px; border: 2px dashed var(--blue); border-radius: 16px; background: var(--blue-soft); color: var(--blue); font: inherit; }
+.show-drop small { color: var(--ink-2); }
+.show-preview { width: 100%; max-height: 40vh; border-radius: 12px; background: #000; }
+.show-busy { flex-direction: row; align-items: center; gap: 12px; font-size: 17px; }
+.vidcard { display: flex; flex-direction: column; gap: 8px; align-self: stretch; border: 1.5px solid #e0b100; background: #fffdf4; border-radius: 16px; padding: 10px; }
+.vidcard .lab { font-size: 13px; font-weight: 700; color: #7a5a00; }

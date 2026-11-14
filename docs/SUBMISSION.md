@@ -34,6 +34,12 @@ An assistant handles the awkward parts of a live call, but never decides anythin
 - Calls in Spanish, French or Portuguese: the caller hears their language, and the signer reads
   English with the caller's own words underneath. Numbers, days and "no" are checked after
   translation.
+- **Show it.** Some things are hard to describe without speaking: a leak, a warning light, a broken
+  part. So you film it. Gemini watches the clip and lists what it shows, and each point is pinned
+  to the moment and the spot in the video. The clip plays back with those boxes as on-screen
+  tooltips, so you check every point against what the camera saw before anything is said. Then the
+  landlord hears a clear description, follow-up answers ("what's the model number?") come from the
+  video, and you can send them the annotated clip as a link.
 - Captions in four sizes; customizable quick replies, always one tap away.
 - Gesture Synth (Playground): a "Living Aurora". Play music with your hands, and each note becomes
   light, shape and motion: low notes violet and round, high notes gold and sharp. A vibration pulse
@@ -89,9 +95,13 @@ The judge has agreed to be called. The backup video is ready but **never present
 2. **It won't guess (20 s).** The judge asks "six or twelve?" If the sign is unclear, two choices
    appear and nothing is said until the signer taps one. The judge names a price, and the confirm
    sheet appears.
-3. **Another language (15 s), only if verified on a real call.** Switch a contact to Español. The
+3. **Show it (25 s), only if verified with the real key.** Still on the judge's call, film
+   something for 10–15 s, such as a blinking router or a cracked screen. Show the clip with its
+   boxes and tooltips. Tap Send: the judge hears the description. The judge asks a follow-up, and
+   the answer comes from the video ("Say this"). Turn on sharing and text them the link.
+4. **Another language (15 s), only if verified on a real call.** Switch a contact to Español. The
    judge (or a teammate) hears Spanish, and the signer reads English.
-4. **Same engine in Meet (15 s), only if stable today.** The other participant hears the voice and
+5. **Same engine in Meet (15 s), only if stable today.** The other participant hears the voice and
    sees the chat line.
 5. **Gesture Synth (15 s).** Hand the judge the camera. Pinch, and music starts.
 
