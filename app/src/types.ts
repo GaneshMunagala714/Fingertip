@@ -65,6 +65,8 @@ export type CallView = {
   endedReason: string
   notice: { kind: string; text: string } | null
   editDraft: boolean
+  /** Last Twilio call status for an outgoing call (queued, initiated, ringing, in-progress...). Real events only. */
+  carrier?: string
 }
 
 export type Recent = {

@@ -21,7 +21,7 @@ export async function post<T = any>(path: string, body?: unknown): Promise<T> {
       body: body === undefined ? undefined : JSON.stringify(body),
     })
   } catch {
-    throw new ApiError("Couldn't reach Sign2Speak. Check your connection.")
+    throw new ApiError("Couldn't reach the server. Check your connection.")
   }
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new ApiError(typeof data.detail === 'string' ? data.detail : 'Something went wrong. Please try again.')

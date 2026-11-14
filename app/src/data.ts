@@ -20,7 +20,21 @@ export const VOICES: Voice[] = [
   { id: 'JBFqnCBsd6RMkjVDRZzb', name: 'Sam', feel: 'Deep and relaxed', age: '40s', accent: 'British', gender: 'm', foreign: true },
 ]
 
-export const INTRO = "Hey! Quick heads-up, I'm deaf, so an app's voicing what I sign. Bear with me a sec."
+// Mirrors server translate.intro(): how the heads-up describes you is a setting, not an assumption.
+export type IntroStyle = 'deaf' | 'hoh' | 'nonspeaking' | 'none'
+export const INTRO_STYLES: { key: IntroStyle; label: string; says: string }[] = [
+  { key: 'deaf', label: "I'm Deaf", says: "I'm deaf, so an app is voicing what I sign or type." },
+  { key: 'hoh', label: "I'm hard of hearing", says: "I'm hard of hearing, so an app is voicing what I sign or type." },
+  { key: 'nonspeaking', label: "I don't speak", says: "I can't speak, so an app is voicing what I sign or type." },
+  { key: 'none', label: 'Just say an app is voicing', says: 'an app is voicing what I sign or type.' },
+]
+export const introFor = (s: IntroStyle = 'deaf') => `Hey! Quick heads-up: ${INTRO_STYLES.find((x) => x.key === s)?.says ?? INTRO_STYLES[0].says} Bear with me a sec.`
+export const INTRO = introFor('deaf')
+
+/** Always-available replies. Editable in Settings; nothing here is ever sent without a tap. */
+export const DEFAULT_QUICK = ['Yes.', 'No.', 'Please repeat that.', 'Give me a moment.', 'I have a question.', 'Thank you.']
+
+export const CAPTION_SIZES = [{ k: 0.9, label: 'Small' }, { k: 1, label: 'Medium' }, { k: 1.2, label: 'Large' }, { k: 1.45, label: 'Extra large' }]
 
 export function initials(name: string): string {
   const w = name.replace(/[^A-Za-z ]/g, '').trim()

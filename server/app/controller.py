@@ -29,9 +29,9 @@ ON_HOLD, ENDED = "ON_HOLD", "ENDED"
 
 AUTO, QUICK, CONFIRM = "auto", "quick", "confirm"
 
-INTRO_BASE = "Hey! Quick heads-up, I'm deaf, so an app's voicing what I sign."
-INTRO = INTRO_BASE + " Bear with me a sec."
-INTRO_ORDER = INTRO_BASE + " I'd like to place a pickup order."
+# The heads-up depends on how the signer describes themself (Settings); see translate.intro().
+INTRO = translate.intro(None, "deaf")
+INTRO_ORDER = translate.intro(None, "deaf", order=True)
 FILLERS_1 = ["Mm, one sec...", "Mm, just a sec...", "Okay, one sec..."]
 FILLERS_2 = ["Sorry, just a moment...", "Sorry, one more second..."]
 PRESENCE = ["Yeah, still here!", "Yep, I'm here! One sec."]
@@ -97,7 +97,9 @@ Emit = Callable[[dict], Awaitable[None]]
 
 class Controller:
     def __init__(self, session_id: str, contact: Contact, brain, *, direction: str, note: str = "",
-                 voice_id: Optional[str] = None, emit: Optional[Emit] = None, time_scale: float = 1.0) -> None:
+                 voice_id: Optional[str] = None, emit: Optional[Emit] = None, time_scale: float = 1.0,
+                 intro_style: str = "deaf") -> None:
+        self.intro_style = intro_style if intro_style in translate.INTRO_STYLES else "deaf"
         self.id = session_id
         self.contact = contact
         self.brain = brain
@@ -153,10 +155,12 @@ class Controller:
             await self.emit({"type": "state", "state": s})
 
     @property
+    def _intro_order(self) -> bool:
+        return any(f["key"] == "order" for f in self.note_facts)
+
+    @property
     def intro_text(self) -> str:
-        if any(f["key"] == "order" for f in self.note_facts):
-            return INTRO_ORDER
-        return INTRO
+        return translate.intro(None, self.intro_style, self._intro_order)
 
     @property
     def default_tone(self) -> str:
@@ -324,7 +328,7 @@ class Controller:
                 return
         if qt == "emergency":
             await self.emit({"type": "notice", "kind": "emergency",
-                             "text": "Sign2Speak can't handle emergencies. Text 911 if you need help."})
+                             "text": "This app can't handle emergencies. Text 911 if you need help."})
         await self._your_turn(a)
         if qt not in ("closing",):
             self._schedule_fillers(turn)
@@ -517,7 +521,8 @@ class Controller:
         """English line -> (what the caller will hear, problem). English calls: (None, "")."""
         if not self.lang:
             return None, ""
-        fixed = translate.fixed_line(self.lang, text, {"intro": INTRO, "intro_order": INTRO_ORDER})
+        fixed = (translate.intro(self.lang, self.intro_style, self._intro_order) if text == self.intro_text
+                 else translate.fixed_line(self.lang, text))
         if fixed:
             return fixed, ""
         t0 = time.perf_counter()
@@ -551,7 +556,7 @@ class Controller:
             return False
         if self.lang and spoken is None:
             # Only fixed lines (fillers) get here without a translation; they're pre-written.
-            spoken = translate.fixed_line(self.lang, text, {"intro": INTRO, "intro_order": INTRO_ORDER})
+            spoken = translate.fixed_line(self.lang, text)
             if spoken is None:
                 log.warning("no translation for %r; not spoken", text)
                 return False

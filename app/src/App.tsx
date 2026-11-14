@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { Live, post } from './api'
-import { DEFAULT_CONTACTS, sameNumber, VOICES } from './data'
+import { DEFAULT_CONTACTS, DEFAULT_QUICK, sameNumber, VOICES } from './data'
 import { AfterCall, Calling, InCall, Incoming } from './screens/Call'
 import { InPerson } from './screens/InPerson'
 import { MeetingsPage } from './screens/Meet'
 import { Playground } from './screens/Playground'
-import { ContactPage, ErrandNote, Home, Tabs, VoicePicker, type Tab } from './screens/Setup'
+import { ContactPage, ErrandNote, Home, Settings, Tabs, VoicePicker, type Prefs, type Tab } from './screens/Setup'
 import { initial, reduce } from './store'
 import { load, save } from './storage'
 import type { CallView, Contact, Recent, SavedTranscript } from './types'
@@ -16,6 +16,7 @@ type Route =
   | { name: 'note'; contact: Contact }
   | { name: 'voice'; back: Route }
   | { name: 'inperson' }
+  | { name: 'settings' }
 
 export default function App() {
   const [s, dispatch] = useReducer(reduce, initial)
@@ -30,10 +31,12 @@ export default function App() {
   const [tab, setTab] = useState<Tab>(() => (location.hash === '#meetings' ? 'meetings' : location.hash === '#play' ? 'play' : 'call'))
   const tabs = <Tabs tab={tab} onTab={setTab} />
   const [myName, setMyName] = useState<string>(() => load('myName', ''))
+  const [prefs, setPrefs] = useState<Prefs>(() => ({ quick: DEFAULT_QUICK, capScale: 1, introStyle: 'deaf', ...load<Partial<Prefs>>('prefs', {}) }))
   const live = useRef<Live | null>(null)
   const helloRef = useRef(() => ({}))
-  helloRef.current = () => ({ type: 'hello', contacts, voice_id: voiceId })
+  helloRef.current = () => ({ type: 'hello', contacts, voice_id: voiceId, intro_style: prefs.introStyle })
 
+  useEffect(() => save('prefs', prefs), [prefs])
   useEffect(() => save('contacts', contacts), [contacts])
   useEffect(() => save('recents', recents), [recents])
 
@@ -45,7 +48,7 @@ export default function App() {
     live.current = l
     return () => l.close()
   }, [])
-  useEffect(() => { live.current?.send(helloRef.current()) }, [contacts, voiceId])
+  useEffect(() => { live.current?.send(helloRef.current()) }, [contacts, voiceId, prefs.introStyle])
 
   // Log finished calls to Recent (on this device only).
   const logged = useRef(new Set<string>())
@@ -105,7 +108,7 @@ export default function App() {
         return <Calling call={active} voiceId={voiceId ?? VOICES[0].id} firstWords={firstWords[active.sid] ?? null}
           onCancel={() => post(`/api/calls/${active.sid}/hangup`).catch(() => {})} />
       }
-      return <InCall call={active} online={online} dispatch={dispatch} />
+      return <InCall call={active} online={online} dispatch={dispatch} quick={prefs.quick} capScale={prefs.capScale} />
     }
     if (ended) {
       const back = contacts.find((k) => k.id === ended.contact.id || sameNumber(k.number, ended.contact.number))
@@ -124,6 +127,9 @@ export default function App() {
         return <VoicePicker current={voiceId} onDone={(id) => { setVoiceId(id); save('voice', id); setRoute(route.back) }} />
       case 'inperson':
         return <InPerson myName={myName} onDone={() => setRoute({ name: 'home' })} />
+      case 'settings':
+        return <Settings prefs={prefs} voiceName={voiceName} onChange={setPrefs}
+          onVoice={() => setRoute({ name: 'voice', back: { name: 'settings' } })} onBack={() => setRoute({ name: 'home' })} />
       case 'contact': {
         const c = contacts.find((x) => x.id === route.id)
         if (!c) return null
@@ -152,9 +158,9 @@ export default function App() {
             startCall(known ?? { id: '', name: '', number: n, knows_sign: false, kind: 'person' })
           }}
           onInPerson={() => setRoute({ name: 'inperson' })}
-          onSettings={() => setRoute({ name: 'voice', back: { name: 'home' } })} />
+          onSettings={() => setRoute({ name: 'settings' })} />
     }
-  }, [ringing, active, ended, route, contacts, recents, online, voiceId, voiceName, firstWords, dialError, dialing, startCall, myName, tab])
+  }, [ringing, active, ended, route, contacts, recents, online, voiceId, voiceName, firstWords, dialError, dialing, startCall, myName, tab, prefs])
 
   return screen
 }

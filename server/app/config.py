@@ -14,6 +14,8 @@ def _bool(name: str, default: bool) -> bool:
 
 @dataclass
 class Settings:
+    # Product name (Sign2Speak is retired; the new name isn't chosen yet). Mirrors app/src/brand.ts.
+    app_name: str = field(default_factory=lambda: os.getenv("APP_NAME", "Unnamed"))
     # Public base URL, e.g. https://sign2speak.example.com (no trailing slash).
     public_url: str = field(default_factory=lambda: os.getenv("PUBLIC_URL", "http://localhost:8000").rstrip("/"))
 

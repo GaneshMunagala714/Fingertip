@@ -53,6 +53,7 @@ class Hub:
         self.sockets: set[WebSocket] = set()
         self.contacts: list[dict] = []
         self.voice_id: Optional[str] = None
+        self.intro_style = "deaf"          # how the heads-up describes the user (app Settings)
 
     async def broadcast(self, msg: dict) -> None:
         dead = []
@@ -93,7 +94,7 @@ state = {"telephony": None, "brain": None, "signs": None}
 def new_session(contact: Contact, direction: str, note: str = "") -> Controller:
     sid = secrets.token_urlsafe(18)
     c = Controller(sid, contact, state["brain"], direction=direction, note=note, voice_id=hub.voice_id,
-                   emit=hub.broadcast)
+                   emit=hub.broadcast, intro_style=hub.intro_style)
     sessions[sid] = c
     return c
 
@@ -168,7 +169,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Sign2Speak", lifespan=lifespan)
+app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
 
 async def twilio_form(request: Request) -> dict:
@@ -362,6 +363,8 @@ async def ws_app(ws: WebSocket, key: Optional[str] = None) -> None:
             if msg.get("type") == "hello":
                 hub.contacts = msg.get("contacts", [])[:200]
                 hub.voice_id = msg.get("voice_id") or hub.voice_id
+                if msg.get("intro_style") in translate.INTRO_STYLES:
+                    hub.intro_style = msg["intro_style"]
             elif msg.get("type") == "ping":
                 await ws.send_json({"type": "pong", "t": msg.get("t")})
     except (WebSocketDisconnect, RuntimeError):

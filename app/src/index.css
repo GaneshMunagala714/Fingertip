@@ -147,10 +147,22 @@ input, textarea { font: inherit; color: inherit; }
 .who-label.live::before { content: ''; width: 7px; height: 7px; border-radius: 99px; background: var(--blue); }
 .who-label.caller { margin-left: 42px; }
 .row-c { display: flex; align-items: flex-end; gap: 8px; max-width: 86%; }
-.bub { padding: 12px 16px; border-radius: 18px; font-size: 18px; line-height: 1.38; overflow-wrap: anywhere; }
-.bub.caller { background: var(--card); border: 1px solid var(--line); }
-.bub.caller.latest { font-size: 22px; }
-.bub.caller.live { border: 2px solid var(--blue); font-size: 23px; }
+/* --cap: caption size from Settings (0.9 .. 1.45). Captions never go below 22px at Medium. */
+.bub { padding: 12px 16px; border-radius: 18px; font-size: calc(18px * var(--cap, 1)); line-height: 1.38; overflow-wrap: anywhere; }
+.bub.caller { background: var(--card); border: 1px solid var(--line); font-size: calc(22px * var(--cap, 1)); }
+.bub.caller.latest { font-size: calc(23px * var(--cap, 1)); }
+.bub.caller.live { border: 2px solid var(--blue); font-size: calc(24px * var(--cap, 1)); }
+.cap-sample { margin-top: 10px; font-size: calc(22px * var(--cap, 1)); }
+.introopts { display: flex; flex-direction: column; gap: 8px; }
+.introopt { text-align: left; padding: 12px 14px; border-radius: 14px; border: 1.5px solid var(--line); background: var(--card); color: inherit; font: inherit; display: flex; flex-direction: column; gap: 4px; min-height: 44px; }
+.introopt.on { border: 2px solid var(--blue); background: var(--blue-soft); }
+.introopt small { color: var(--ink-2); }
+.quicklist { list-style: none; margin: 8px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.quicklist li { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); }
+.quicklist li span { flex: 1; font-size: 17px; }
+.quicklist .mini { min-width: 44px; min-height: 44px; border: 0; border-radius: 10px; background: var(--bg); color: var(--ink); font-size: 16px; }
+.quicklist .mini:disabled { opacity: .35; }
+.chips.mine button { border-style: dashed; }
 .bub.me { background: var(--blue); color: #fff; align-self: flex-end; max-width: 86%; }
 .bub.me.speaking { box-shadow: 0 0 0 3px rgba(36,87,214,.22); }
 .bub .rest { opacity: .6; }
@@ -164,7 +176,7 @@ input, textarea { font: inherit; color: inherit; }
 .draft-wrap .lab { font-size: 13px; color: var(--blue); font-weight: 700; }
 .draft-wrap .lab.amber { color: var(--amber); }
 .draft-wrap .under { font-size: 13px; color: var(--ink-2); }
-.draftbub { border: 2px dashed var(--blue); background: var(--card); color: var(--ink); padding: 12px 16px; border-radius: 16px; font-size: 21px; text-align: left; line-height: 1.35; }
+.draftbub { border: 2px dashed var(--blue); background: var(--card); color: var(--ink); padding: 12px 16px; border-radius: 16px; font-size: calc(21px * var(--cap, 1)); text-align: left; line-height: 1.35; }
 .draftbub.blocked { border-color: var(--amber); }
 .signtags { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
 .signtags span { font-size: 13px; font-weight: 700; background: var(--bg); border-radius: 6px; padding: 3px 8px; letter-spacing: .03em; }

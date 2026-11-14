@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { post } from '../api'
+import { APP_NAME } from '../brand'
 import { useSigning } from '../sign/useSigning'
 import { SelfView } from './Call'
 
@@ -25,7 +26,7 @@ export function MeetPanel({ preview = true }: { preview?: boolean }) {
         <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: '#aeb6c2', fontSize: 14 }}>Team sync · Video call</div>
       </div>
       <div className="panel">
-        <h3>Sign2Speak</h3>
+        <h3>{APP_NAME}</h3>
         <div className="fine">In this meeting</div>
         <SelfView signing camera={!preview} />
         <div className="draft-wrap" style={{ alignSelf: 'stretch', maxWidth: 'none' }}>
@@ -84,7 +85,7 @@ export function MeetLive({ embedded = false }: { embedded?: boolean }) {
   return (
     <div className={embedded ? 'meet-embedded' : 'screen'}>
       <div className="pad16" style={embedded ? { padding: 0 } : { flex: 1, overflow: 'auto' }}>
-        {!embedded && <><h3 style={{ fontSize: 20 }}>Sign2Speak</h3><div className="fine">In this meeting</div></>}
+        {!embedded && <><h3 style={{ fontSize: 20 }}>{APP_NAME}</h3><div className="fine">In this meeting</div></>}
         <div style={{ position: 'relative', height: 200 }}>
           <SelfView signing={!!sign.signs} onVideo={sign.onVideo} className="selfview meet-self" />
         </div>
@@ -156,14 +157,14 @@ export function MeetingsPage({ tabs }: { tabs: React.ReactNode }) {
           </Step>
           <Step ok={null} title="Google Meet in Chrome">
             Load the <code>extension/</code> folder in Chrome (Extensions, Developer mode, Load unpacked), then tap
-            the Sign2Speak button inside Meet. It speaks into your Meet microphone and posts to chat. We can't detect it from here.
+            the {APP_NAME} button inside Meet. It speaks into your Meet microphone and posts to chat. We can't detect it from here.
           </Step>
         </div>
         <div className="cardbox boxpad">
           <div className="label">Say something in your meeting</div>
           <MeetLive embedded />
         </div>
-        <p className="fine">While Sign2Speak is your microphone, the meeting hears only the generated voice. For what others say, turn on the meeting's own captions.</p>
+        <p className="fine">While the bridge is your microphone, the meeting hears only the generated voice. For what others say, turn on the meeting's own captions.</p>
       </div>
     </div>
   )

@@ -1,7 +1,7 @@
 {
-  "name": "Sign2Speak",
-  "short_name": "Sign2Speak",
-  "description": "Phone calls in ASL: read their words live, sign back, they hear a natural voice.",
+  "name": "Unnamed",
+  "short_name": "Unnamed",
+  "description": "Communicate your way: sign, type or tap; read their words live; they hear a natural voice.",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",

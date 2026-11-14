@@ -73,10 +73,6 @@ LANGS: dict[str, Lang] = {
         re.compile(r"\b(no|nunca|nada|ninguno|ninguna|ni|tampoco|jamás|jamas|cancelar|cancela)\b", re.I),
         _with_months(_ES_DAYS, _ES_MONTHS),
         {
-            "intro": "¡Hola! Un aviso rápido: soy una persona sorda y una app dice en voz alta lo que escribo "
-                     "en señas. Dame un momento, por favor.",
-            "intro_order": "¡Hola! Un aviso rápido: soy una persona sorda y una app dice en voz alta lo que "
-                           "escribo en señas. Quisiera hacer un pedido para recoger.",
             "Mm, one sec...": "Mm, un segundo...",
             "Mm, just a sec...": "Mm, solo un segundo...",
             "Okay, one sec...": "Okay, un segundo...",
@@ -92,10 +88,6 @@ LANGS: dict[str, Lang] = {
         re.compile(r"\b(ne|pas|non|jamais|rien|aucun|aucune|ni|annuler|annule)\b|\bn['’]", re.I),
         _with_months(_FR_DAYS, _FR_MONTHS),
         {
-            "intro": "Bonjour ! Petite précision : je suis une personne sourde, et une application dit à voix "
-                     "haute ce que je signe. Un instant, s'il vous plaît.",
-            "intro_order": "Bonjour ! Petite précision : je suis une personne sourde, et une application dit à "
-                           "voix haute ce que je signe. J'aimerais passer une commande à emporter.",
             "Mm, one sec...": "Mm, une seconde...",
             "Mm, just a sec...": "Mm, juste une seconde...",
             "Okay, one sec...": "D'accord, une seconde...",
@@ -111,10 +103,6 @@ LANGS: dict[str, Lang] = {
         re.compile(r"\b(não|nao|nunca|nada|nenhum|nenhuma|nem|cancelar|cancela)\b", re.I),
         _with_months(_PT_DAYS, _PT_MONTHS),
         {
-            "intro": "Oi! Um aviso rápido: sou uma pessoa surda, e um aplicativo fala em voz alta o que eu "
-                     "sinalizo. Só um momento, por favor.",
-            "intro_order": "Oi! Um aviso rápido: sou uma pessoa surda, e um aplicativo fala em voz alta o que eu "
-                           "sinalizo. Eu queria fazer um pedido para retirar.",
             "Mm, one sec...": "Hum, um segundo...",
             "Mm, just a sec...": "Hum, só um segundo...",
             "Okay, one sec...": "Tá, um segundo...",
@@ -126,6 +114,38 @@ LANGS: dict[str, Lang] = {
             "Sorry, one sec...": "Desculpa, um segundo...",
         }),
 }
+
+
+# ------------------------------------------------------------------ the heads-up
+# Not everyone who uses this is Deaf, and not everyone signs. The signer picks how the heads-up
+# describes them (Settings): deaf | hoh | nonspeaking | none. It always says an app is voicing.
+
+INTRO_STYLES = ("deaf", "hoh", "nonspeaking", "none")
+_WHO = {
+    None: {"deaf": "I'm deaf", "hoh": "I'm hard of hearing", "nonspeaking": "I can't speak"},
+    "es-US": {"deaf": "soy una persona sorda", "hoh": "tengo pérdida auditiva", "nonspeaking": "no puedo hablar"},
+    "fr-FR": {"deaf": "je suis une personne sourde", "hoh": "j'ai une perte auditive", "nonspeaking": "je ne peux pas parler"},
+    "pt-BR": {"deaf": "sou uma pessoa surda", "hoh": "tenho perda auditiva", "nonspeaking": "não consigo falar"},
+}
+_INTRO_PARTS = {   # opener, "so an app is voicing...", tail (bear with me), tail (pickup order)
+    None: ("Hey! Quick heads-up:", "an app is voicing what I sign or type.",
+           "Bear with me a sec.", "I'd like to place a pickup order."),
+    "es-US": ("¡Hola! Un aviso rápido:", "una app dice en voz alta lo que escribo o expreso en señas.",
+              "Dame un momento, por favor.", "Quisiera hacer un pedido para recoger."),
+    "fr-FR": ("Bonjour ! Petite précision :", "une application dit à voix haute ce que j'écris ou je signe.",
+              "Un instant, s'il vous plaît.", "J'aimerais passer une commande à emporter."),
+    "pt-BR": ("Oi! Um aviso rápido:", "um aplicativo fala em voz alta o que eu escrevo ou sinalizo.",
+              "Só um momento, por favor.", "Eu queria fazer um pedido para retirar."),
+}
+_SO = {None: "so", "es-US": "y", "fr-FR": "et", "pt-BR": "e"}
+
+
+def intro(lang: "Lang | None", style: str = "deaf", order: bool = False) -> str:
+    key = lang.code if lang else None
+    opener, voicing, wait, order_tail = _INTRO_PARTS[key]
+    who = _WHO[key].get(style if style in INTRO_STYLES else "deaf")
+    mid = f"{who}, {_SO[key]} {voicing}" if who else voicing
+    return f"{opener} {mid} {order_tail if order else wait}"
 
 
 def lang_for(code: str | None) -> Lang | None:
@@ -142,11 +162,9 @@ def languages() -> list[dict]:
     return [{"code": "en-US", "name": "English"}] + [{"code": l.code, "name": l.name} for l in LANGS.values()]
 
 
-def fixed_line(lang: Lang, text: str, intro_texts: dict[str, str]) -> str | None:
-    """The pre-written translation of a fixed line, or None if this line needs the model."""
-    for key, en in intro_texts.items():
-        if text == en:
-            return lang.fixed.get(key)
+def fixed_line(lang: Lang, text: str) -> str | None:
+    """The pre-written translation of a filler-type line, or None if this line needs the model.
+    (The heads-up is built per language by intro().)"""
     return lang.fixed.get(text)
 
 

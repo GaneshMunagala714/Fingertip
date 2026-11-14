@@ -1,4 +1,5 @@
-// Sign2Speak for Google Meet (signer-only). Isolated-world content script.
+// Meet extension (signer-only). Isolated-world content script. Product name: APP_NAME below.
+const APP_NAME = 'Unnamed'   // mirrors app/src/brand.ts; the new name isn't chosen yet
 // 1. Injects inject.js into the page so the mic can carry Sign2Speak's voice.
 // 2. Adds a "Sign2Speak" button that opens the signing panel (your Sign2Speak server's /#meet).
 // 3. When the panel sends a sentence: post it to Meet chat, and play its voice into the mic.
@@ -60,8 +61,8 @@ const S2S = {
     if (document.getElementById('s2s-open')) return
     const b = document.createElement('button')
     b.id = 's2s-open'
-    b.textContent = 'Sign2Speak'
-    b.setAttribute('aria-label', 'Open Sign2Speak signing panel')
+    b.textContent = APP_NAME
+    b.setAttribute('aria-label', `Open ${APP_NAME} panel`)
     Object.assign(b.style, {
       position: 'fixed', right: '16px', bottom: '96px', zIndex: 2147483647, padding: '12px 18px',
       borderRadius: '12px', border: '0', background: '#2457D6', color: '#fff', font: '700 15px system-ui',

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { post } from '../api'
-import { INTRO, mmss, VOICES } from '../data'
+import { DEFAULT_QUICK, INTRO, mmss, VOICES } from '../data'
 import { Alert, ArrowUp, HangUp, Hand, Keyboard, Music, Phone } from '../icons'
 import type { CallView, Line } from '../types'
 import { pretty, useSigning } from '../sign/useSigning'
@@ -26,7 +26,7 @@ export function Incoming({ call, onAnswer, onDecline }: { call: CallView; onAnsw
         <div className="sub">mobile</div>
         <div className="darkcard">
           <Hand size={24} />
-          <span>Sign2Speak is on. You'll read what {c.name} says and can sign back.</span>
+          <span>You'll read what {c.name} says, and can sign, type or tap a reply.</span>
         </div>
       </div>
       <div className="round-row">
@@ -42,10 +42,15 @@ export function Incoming({ call, onAnswer, onDecline }: { call: CallView; onAnsw
 export function Calling({ call, voiceId, firstWords, onCancel }: { call: CallView; voiceId: string; firstWords: string | null; onCancel: () => void }) {
   const voice = VOICES.find((v) => v.id === voiceId)?.name ?? 'your voice'
   const c = call.contact
+  // Only what Twilio has actually reported. "Connected" comes later, when the voice link is up.
+  const progress = call.carrier === 'ringing' ? 'Ringing...'
+    : call.carrier === 'in-progress' || call.carrier === 'answered' ? 'They picked up. Connecting...'
+    : call.carrier === 'queued' || call.carrier === 'initiated' ? 'Dialing...'
+    : 'Starting the call...'
   return (
     <div className="screen dark">
       <div className="dark-center">
-        <div className="kicker">Calling...</div>
+        <div className="kicker" role="status" aria-live="polite">{progress}</div>
         <Avatar c={c} size="xl" />
         <h1>{c.name}</h1>
         {firstWords && (
@@ -132,9 +137,14 @@ type Props = {
   /** Design gallery: no camera, no network. */
   preview?: boolean
   startTyping?: string
+  /** The signer's own always-available replies (Settings). */
+  quick?: string[]
+  /** Caption size from Settings. */
+  capScale?: number
 }
 
-export function InCall({ call, online, dispatch, signing: signingProp = null, unsure: unsureProp = null, onPickUnsure, onSignAgain, preview = false, startTyping }: Props) {
+export function InCall({ call, online, dispatch, signing: signingProp = null, unsure: unsureProp = null, onPickUnsure, onSignAgain, preview = false, startTyping,
+  quick = DEFAULT_QUICK, capScale = 1 }: Props) {
   // Live sign recognition. Each new sign re-drafts on the server, so the reply is ready (and sealed with
   // its approval hash) before the signer taps Send. Send never waits on a model.
   const lastPosted = useRef('')
@@ -314,6 +324,13 @@ export function InCall({ call, online, dispatch, signing: signingProp = null, un
       ))}
     </div>
   )
+  // The signer's own replies: always one tap away (not AI-suggested). Shown when no AI chips crowd the dock.
+  const mine = quick.filter((q) => !chips.includes(q))
+  const mineRow = mine.length > 0 && (
+    <div className="chips mine" role="group" aria-label="Your quick replies">
+      {mine.map((q) => <button key={q} onClick={() => send(q, 'chip')} disabled={busy}>{q}</button>)}
+    </div>
+  )
   if (reconnecting) {
     dock = <div className="dockrow"><div className="status"><span className="dots"><i /><i /><i /></span>Getting back in...</div></div>
   } else if (unsure && mode === 'idle') {
@@ -337,6 +354,7 @@ export function InCall({ call, online, dispatch, signing: signingProp = null, un
   } else if (mode === 'type') {
     dock = <>
       {chipRow}
+      {mineRow}
       <form className="composer" onSubmit={(e) => { e.preventDefault(); send(text, 'typed') }}>
         <input value={text} onChange={(e) => setText(e.target.value)} autoFocus={!preview}
                onBlur={(e) => { if (!e.target.value.trim() && !busy) setTimeout(() => setMode((m) => (m === 'type' ? 'idle' : m)), 150) }} placeholder="Type to speak" aria-label="Type a reply" enterKeyHint="send" />
@@ -362,18 +380,18 @@ export function InCall({ call, online, dispatch, signing: signingProp = null, un
       <button className="sq" onClick={() => setMode('type')} aria-label="Type instead"><Keyboard /></button>
       <button className="btn btn-blue grow" disabled={busy} onClick={() => send(REPEAT, 'chip')}>Ask them to repeat</button></div></>
   } else if (myTurn) {
-    dock = <>{chipRow}<div className="dockrow">
+    dock = <>{chipRow}{!chipRow && mineRow}<div className="dockrow">
       <div className="status"><Wave on={false} />Your turn: sign, tap, or type</div>
       <button className="sq" onClick={() => setMode('type')} aria-label="Type instead"><Keyboard /></button></div></>
   } else {
     const waiting = st === 'CONNECTED' || st === 'RINGING'
-    dock = <div className="dockrow">
+    dock = <>{!waiting && mineRow}<div className="dockrow">
       <div className="status"><Wave on={st === 'CALLER_TALKING'} />{waiting ? 'Connecting...' : `Listening to ${name}...`}</div>
-      <button className="sq" onClick={() => setMode('type')} aria-label="Type instead"><Keyboard /></button></div>
+      <button className="sq" onClick={() => setMode('type')} aria-label="Type instead"><Keyboard /></button></div></>
   }
 
   return (
-    <div className={`screen wide ${flash ? 'flash' : ''}`}>
+    <div className={`screen wide ${flash ? 'flash' : ''}`} style={{ ['--cap' as any]: capScale }}>
       <div className="calltop">
         <Avatar c={call.contact} size="sm" />
         <div className="who"><b>{name}</b><small>{timer}</small></div>

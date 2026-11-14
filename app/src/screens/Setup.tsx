@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { post } from '../api'
-import { ago, avatarTone, initials, prettyNumber, VOICES } from '../data'
+import { APP_NAME } from '../brand'
+import { ago, avatarTone, CAPTION_SIZES, DEFAULT_QUICK, initials, INTRO_STYLES, introFor, prettyNumber, VOICES, type IntroStyle } from '../data'
 import { Back, Gear, People, Play } from '../icons'
 import type { Contact, Recent } from '../types'
 
@@ -87,7 +88,7 @@ export type Tab = 'call' | 'meetings' | 'play'
 /** The three top-level experiences. */
 export function Tabs({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
   return (
-    <div className="tabs" role="tablist" aria-label="Sign2Speak">
+    <div className="tabs" role="tablist" aria-label={APP_NAME}>
       {([['call', 'Call'], ['meetings', 'Meetings'], ['play', 'Playground']] as const).map(([k, l]) => (
         <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => onTab(k)}>{l}</button>
       ))}
@@ -107,7 +108,7 @@ export function Home({ contacts, recents, online, onOpen, onDial, onInPerson, on
         <div className="title-row" style={tabs ? { marginTop: 12 } : undefined}>
           <div>
             <h1>Calls</h1>
-            {!online && <div className="fine" style={{ color: 'var(--amber)' }}>Connecting to Sign2Speak...</div>}
+            {!online && <div className="fine" style={{ color: 'var(--amber)' }}>Connecting to the server...</div>}
           </div>
           <button className="gear" onClick={onSettings} aria-label="Settings"><Gear size={22} /></button>
         </div>
@@ -181,6 +182,85 @@ function Keypad({ onClose, onCall }: { onClose: () => void; onCall: (n: string) 
         <div style={{ display: 'flex', gap: 10 }}>
           <button className="btn btn-ghost" onClick={() => setN((x) => x.slice(0, -1))} aria-label="Delete digit">Delete</button>
           <button className="btn btn-blue grow" disabled={digits.length < 10} onClick={() => onCall(n)}>Call</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ---------------------------------------------------------------- settings */
+
+export type Prefs = { quick: string[]; capScale: number; introStyle: IntroStyle }
+
+export function Settings({ prefs, voiceName, onChange, onVoice, onBack }: {
+  prefs: Prefs; voiceName: string; onChange: (p: Prefs) => void; onVoice: () => void; onBack: () => void
+}) {
+  const [adding, setAdding] = useState('')
+  const addQuick = () => {
+    const t = adding.trim()
+    if (!t || prefs.quick.includes(t)) return
+    onChange({ ...prefs, quick: [...prefs.quick, t].slice(0, 12) })
+    setAdding('')
+  }
+  const move = (i: number, d: -1 | 1) => {
+    const q = prefs.quick.slice()
+    const j = i + d
+    if (j < 0 || j >= q.length) return
+    ;[q[i], q[j]] = [q[j], q[i]]
+    onChange({ ...prefs, quick: q })
+  }
+  return (
+    <div className="screen">
+      <div className="head-white">
+        <div className="title-row"><h1>Settings</h1><button className="link" onClick={onBack}>Done</button></div>
+      </div>
+      <div className="scroll pad16" style={{ gap: 14 }}>
+        <div className="cardbox setting">
+          <div className="txt"><b>Your voice</b><small>{voiceName}</small></div>
+          <button className="link" onClick={onVoice}>Change</button>
+        </div>
+
+        <div className="cardbox boxpad">
+          <div className="label">Caption size</div>
+          <div className="filters" role="radiogroup" aria-label="Caption size">
+            {CAPTION_SIZES.map((s) => (
+              <button key={s.k} role="radio" aria-checked={prefs.capScale === s.k} className={prefs.capScale === s.k ? 'on' : ''}
+                      onClick={() => onChange({ ...prefs, capScale: s.k })}>{s.label}</button>
+            ))}
+          </div>
+          <div className="bub caller cap-sample" style={{ ['--cap' as any]: prefs.capScale }}>Hi! Are you still coming on Sunday?</div>
+        </div>
+
+        <div className="cardbox boxpad">
+          <div className="label">At the start of calls with someone new, they hear</div>
+          <div className="introopts" role="radiogroup" aria-label="How the heads-up describes you">
+            {INTRO_STYLES.map((s) => (
+              <button key={s.key} role="radio" aria-checked={prefs.introStyle === s.key} className={`introopt ${prefs.introStyle === s.key ? 'on' : ''}`}
+                      onClick={() => onChange({ ...prefs, introStyle: s.key })}>
+                <b>{s.label}</b><small>"{introFor(s.key)}"</small>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="cardbox boxpad">
+          <div className="label">Quick replies</div>
+          <div className="fine">Always one tap away in a call. Nothing is said until you tap. Money or bookings still ask you first.</div>
+          <ul className="quicklist">
+            {prefs.quick.map((q, i) => (
+              <li key={q}>
+                <span>{q}</span>
+                <button className="mini" onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Move "${q}" up`}>↑</button>
+                <button className="mini" onClick={() => move(i, 1)} disabled={i === prefs.quick.length - 1} aria-label={`Move "${q}" down`}>↓</button>
+                <button className="mini" onClick={() => onChange({ ...prefs, quick: prefs.quick.filter((x) => x !== q) })} aria-label={`Remove "${q}"`}>✕</button>
+              </li>
+            ))}
+          </ul>
+          <form style={{ display: 'flex', gap: 8 }} onSubmit={(e) => { e.preventDefault(); addQuick() }}>
+            <input className="num-input" value={adding} onChange={(e) => setAdding(e.target.value)} placeholder="Add a reply" aria-label="New quick reply" maxLength={80} />
+            <button className="btn btn-ghost" type="submit" style={{ minHeight: 48 }} disabled={!adding.trim()}>Add</button>
+          </form>
+          <button className="link" style={{ alignSelf: 'flex-start' }} onClick={() => onChange({ ...prefs, quick: DEFAULT_QUICK })}>Reset to defaults</button>
         </div>
       </div>
     </div>

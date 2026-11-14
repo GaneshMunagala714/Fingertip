@@ -45,6 +45,34 @@ def test_dial_in_spanish_needs_gemini():
         assert 'language="en-US"' in state["telephony"].calls[-1][2]
 
 
+def test_intro_describes_the_user_as_they_chose():
+    from app.translate import intro
+    assert "I'm deaf" in intro(None, "deaf")
+    assert "I can't speak" in intro(None, "nonspeaking") and "deaf" not in intro(None, "nonspeaking")
+    assert "deaf" not in intro(None, "none") and "an app is voicing" in intro(None, "none")
+    assert "pedido para recoger" in intro(ES, "hoh", order=True)
+    assert intro(None, "bogus") == intro(None, "deaf")
+
+
+def test_controller_uses_intro_style():
+    import asyncio
+
+    from app.ai import RulesBrain
+    from app.controller import Contact, Controller
+
+    async def go():
+        sent = []
+        c = Controller("t", Contact(name="Shop", kind="business"), RulesBrain(), direction="incoming",
+                       intro_style="nonspeaking", time_scale=0.01)
+
+        async def send(m):
+            sent.append(m)
+        await c.attach_relay(send, {"callSid": "CA1"})
+        return sent
+    sent = asyncio.run(go())
+    assert sent and "I can't speak" in sent[0]
+
+
 def test_guard_numbers_days_negation():
     assert translation_guard("2 tacos at 7:30.", "2 tacos a las 7:30.", ES).ok
     assert not translation_guard("2 tacos at 7:30.", "2 tacos a las 8:30.", ES).ok

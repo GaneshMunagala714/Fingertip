@@ -3,12 +3,13 @@
  * rendered by the real app components with fixture data. No camera, no network.
  * Use it to check the UI against the designs and for the demo slide.
  */
-import type { ReactNode } from 'react'
-import { INTRO } from './data'
+import { useState, type ReactNode } from 'react'
+import { APP_NAME } from './brand'
+import { DEFAULT_QUICK, INTRO } from './data'
 import { AfterCall, Calling, InCall, Incoming } from './screens/Call'
 import { InPerson } from './screens/InPerson'
 import { MeetPanel } from './screens/Meet'
-import { ContactPage, ErrandNote, Home, VoicePicker } from './screens/Setup'
+import { ContactPage, ErrandNote, Home, Settings, VoicePicker, type Prefs } from './screens/Setup'
 import type { Analysis, CallView, Contact, Draft, Line } from './types'
 
 const MOM: Contact = { id: 'mom', name: 'Mom', number: '4135550177', knows_sign: true, kind: 'person', style: 'casual', fav: true }
@@ -50,7 +51,7 @@ const FRAMES: [string, ReactNode, boolean?][] = [
   ['3 · Contact: "Knows I sign" skips the intro', <ContactPage contact={MOM} voiceName="Maya" onChange={noop} onBack={noop} onCall={noop} onVoice={noop} />],
   ['4 · Errand call: optional note', <ErrandNote contact={TONY} busy={false} error="" onBack={noop} onCall={noop}
     preview={{ auto_facts: [{ key: 'order', value: 'garlic bread and Honey BBQ wings' }, { key: 'name', value: 'Shruti' }], needs_confirmation: ['tell me the total before ordering'] }} />],
-  ['5 · Calling: what they will hear first', <Calling call={call(TONY, '0:00', { state: 'RINGING', direction: 'outgoing' })} voiceId="XrExE9yKIg1WjnnlVkGX"
+  ['5 · Calling: real progress from the carrier, and what they will hear first', <Calling call={call(TONY, '0:00', { state: 'RINGING', direction: 'outgoing', carrier: 'ringing' })} voiceId="XrExE9yKIg1WjnnlVkGX"
     firstWords={INTRO.replace('Bear with me a sec.', "I'd like to place a pickup order.")} onCancel={noop} />],
   ['6 · Incoming call: answer like normal', <Incoming call={call(MOM, '0:00', { state: 'RINGING' })} onAnswer={noop} onDecline={noop} />],
   ['7 · Caller talking: live captions', live(call(MOM, '02:14', {
@@ -119,15 +120,25 @@ const FRAMES: [string, ReactNode, boolean?][] = [
   ['23 · Call in Spanish: you read English, they hear Spanish', live(call(TAQUERIA, '01:12', {
     direction: 'outgoing', state: 'DRAFT_READY',
     lines: [
-      L('me', "Hey! Quick heads-up, I'm deaf, so an app's voicing what I sign. Bear with me a sec.", { kind: 'intro', level: 'auto',
-        spoken: '¡Hola! Un aviso rápido: soy una persona sorda y una app dice en voz alta lo que escribo en señas. Dame un momento, por favor.' }),
+      L('me', INTRO, { kind: 'intro', level: 'auto',
+        spoken: '¡Hola! Un aviso rápido: soy una persona sorda, y una app dice en voz alta lo que escribo o expreso en señas. Dame un momento, por favor.' }),
       L('caller', 'Hi, what can I get you?', { original: 'Hola, ¿qué le puedo servir?' }),
       L('me', 'Two tacos al pastor, please.', { spoken: '2 tacos al pastor, por favor.' }),
       L('caller', 'What time do you want them for?', { original: '¿Para qué hora los quiere?' }),
     ],
     draft: D('For 7:30, please.', { source: 'typed' }), analysis: A(['Let me check.', 'Could you say that again?'], { question_type: 'time' }),
   }))],
+  ['24 · Settings: caption size, how the heads-up describes you, your quick replies', <SettingsFrame />],
+  ['25 · Your quick replies, one tap away (no AI involved)', live(call(DRLEE, '00:41', {
+    direction: 'outgoing', state: 'LISTENING',
+    lines: [L('caller', "Dr. Lee's office, this is Dana. How can I help?"), L('me', "Hi, I'd like to move my appointment.")],
+  }))],
 ]
+
+function SettingsFrame() {
+  const [p, setP] = useState<Prefs>({ quick: DEFAULT_QUICK, capScale: 1.2, introStyle: 'nonspeaking' })
+  return <Settings prefs={p} voiceName="Maya" onChange={setP} onVoice={noop} onBack={noop} />
+}
 
 function TypeFrame() {
   // Frame 12 opens with the keyboard up; InCall shows it after one tap, so render it in that state.
@@ -141,7 +152,7 @@ function TypeFrame() {
 export default function Gallery() {
   return (
     <div className="gallery">
-      <h1>Sign2Speak · all screens</h1>
+      <h1>{APP_NAME} · all screens</h1>
       {FRAMES.map(([label, node, wide]) => (
         <div key={label} className={`gframe ${wide ? 'wide' : ''}`} data-frame={label.split(' ')[0]}>
           <div className="glabel">{label}</div>
