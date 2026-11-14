@@ -1,4 +1,4 @@
-# Sign2Speak
+# FingerTips
 
 > **Picking this up? Start with [HANDOFF.md](HANDOFF.md):** current status, what is unverified, and the first hour on site.
 
