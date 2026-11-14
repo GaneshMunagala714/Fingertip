@@ -1,5 +1,5 @@
 // Meet extension (signer-only). Isolated-world content script. Product name: APP_NAME below.
-const APP_NAME = 'Unnamed'   // mirrors app/src/brand.ts; the new name isn't chosen yet
+const APP_NAME = 'Fingertip'   // mirrors app/src/brand.ts
 // 1. Injects inject.js into the page so the mic can carry Sign2Speak's voice.
 // 2. Adds a "Sign2Speak" button that opens the signing panel (your Sign2Speak server's /#meet).
 // 3. When the panel sends a sentence: post it to Meet chat, and play its voice into the mic.

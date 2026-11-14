@@ -1,7 +1,7 @@
 # Feature status
 
 Labels from the build spec (§21). **Nothing here has touched a real phone, a real meeting or a live
-AI key yet**: the team hasn't provided Twilio, Gemini or Vultr credentials (see `KEYS_NEEDED.md`).
+AI key yet**: the team hasn't provided Twilio, Gemini or Vultr credentials (see `WHAT_I_NEED.md`).
 So nothing that needs them can be "Working and verified". Updated 2026-11-14.
 
 - **Working and verified:** run and observed on this laptop.
@@ -61,4 +61,4 @@ So nothing that needs them can be "Working and verified". Updated 2026-11-14.
 | Docker image | Working and verified (local) | Builds, serves the app and `/api/health`, sign model loads |
 | Vultr deploy | Blocked | No server or domain yet |
 | Typed frontend/backend contract | Done | `app/src/contract.ts`, `docs/CONTRACT.md`; every event carries `eid` + `ts` |
-| Product name | Blocked on the team | Placeholder "Unnamed", set in one place per surface (`app/src/brand.ts`) |
+| Product name | Done: **Fingertip** | Set in one place per surface (`app/src/brand.ts`). Web search found no communication app by that name; no trademark search done |

@@ -6,7 +6,7 @@ bracket as if it were true. Remove any scene below that wasn't stable on the day
 
 ---
 
-## [Name TBD] · Communicate your way. Be understood anywhere.
+## Fingertip · Every conversation, at your fingertips.
 
 ### The problem
 Phone calls still assume everyone can hear and speak. Deaf signers today can use relay services

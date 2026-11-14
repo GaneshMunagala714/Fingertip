@@ -1,10 +1,11 @@
-# Unnamed (working title)
+# Fingertip
 
-> The old name, Sign2Speak, is retired; the team hasn't picked the new one. It's set in one place
-> per surface (`app/src/brand.ts`, `extension/content.js`, server `APP_NAME`).
+**Every conversation, at your fingertips.** (Formerly Sign2Speak. The name is set in one place per
+surface: `app/src/brand.ts`, `extension/content.js`, server `APP_NAME`.)
+
+> **Getting it running? Read [WHAT_I_NEED.md](WHAT_I_NEED.md) first.**
 >
-> **Picking this up? Start with [HANDOFF.md](HANDOFF.md).** Full feature status: [docs/STATUS.md](docs/STATUS.md).
-> Keys to bring: [KEYS_NEEDED.md](KEYS_NEEDED.md). Event contract: [docs/CONTRACT.md](docs/CONTRACT.md).
+> **Picking this up? Start with [HANDOFF.md](HANDOFF.md).** Full feature status: [docs/STATUS.md](docs/STATUS.md). Event contract: [docs/CONTRACT.md](docs/CONTRACT.md).
 
 **Communicate your way. Be understood anywhere.** A Deaf, hard-of-hearing or nonspeaking person
 makes and takes real phone calls and joins existing meetings. They sign, type or tap a quick reply.

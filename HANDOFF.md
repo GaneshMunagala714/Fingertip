@@ -1,6 +1,6 @@
 # Handoff: where Sign2Speak stands and what to do next
 
-Written 2026-11-14 for the next agent or teammate. **Accounts and keys to bring: `KEYS_NEEDED.md`.**
+Written 2026-11-14 for the next agent or teammate. **Everything needed from the team: `WHAT_I_NEED.md`.**
 Read this, then `MISSION.md` (goals and rules),
 then `DECISIONS.md` (why things are the way they are). Repo: github.com/Shrutibrahma/HackUMass-26, branch `main`.
 
