@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Sign2Speak</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, system-ui, sans-serif;
+        background: #0b1020;
+        color: #f6f7fb;
+      }
+      body { width: 380px; margin: 0; padding: 16px; }
+      h1 { font-size: 18px; margin: 0; letter-spacing: -0.03em; }
+      p { color: #a6b1c5; font-size: 14px; line-height: 1.4; }
+      .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 14px 0; }
+      button, input {
+        font: inherit;
+        color: inherit;
+        min-height: 44px;
+        border-radius: 12px;
+        border: 1px solid rgba(246, 247, 251, 0.12);
+        background: #151d31;
+      }
+      button { padding: 0 12px; cursor: pointer; }
+      input { width: 100%; padding: 0 10px; margin-top: 6px; }
+      .primary { background: #6d8ef5; color: #0b1020; border: 0; font-weight: 650; width: 100%; }
+      .cards { display: grid; gap: 8px; }
+      .card { background: #151d31; border-radius: 14px; padding: 10px 12px; }
+      .card strong { display: block; font-size: 13px; color: #a6b1c5; font-weight: 500; }
+      label { display: block; font-size: 14px; }
+      .check { display: flex; gap: 8px; align-items: flex-start; margin: 12px 0; }
+    </style>
+  </head>
+  <body>
+    <div class="row">
+      <h1>Sign2Speak</h1>
+      <p id="status">Setup needed</p>
+    </div>
+    <div class="row">
+      <span>Enable on Google Meet</span>
+      <button id="toggle" type="button" aria-pressed="false">Off</button>
+    </div>
+    <div class="cards">
+      <div class="card"><strong>Camera</strong><span id="camera">Off until you allow it in the meeting.</span></div>
+      <div class="card"><strong>Sign recognition</strong><span id="recognition">No recognition service is connected.</span></div>
+      <div class="card"><strong>Caption output</strong><span>Only on this screen. Other people do not see it.</span></div>
+      <div class="card"><strong>Meeting audio</strong><span>Not connected. A virtual microphone has to be chosen in the meeting.</span></div>
+    </div>
+    <label>
+      Server address
+      <input id="ws" placeholder="wss://your-server/ws" />
+    </label>
+    <label class="check">
+      <input id="sample" type="checkbox" />
+      <span>Show sample captions on Meet. These are not real recognition.</span>
+    </label>
+    <button id="save" class="primary" type="button">Save</button>
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Sign2Speak",
+  "version": "0.1.0",
+  "description": "Sign-language captions on your own meeting view. Other people do not see them unless a sharing channel is connected.",
+  "action": {
+    "default_title": "Sign2Speak",
+    "default_popup": "popup.html"
+  },
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://meet.google.com/*",
+    "https://cdn.jsdelivr.net/*",
+    "https://storage.googleapis.com/*",
+    "wss://*/*",
+    "https://*/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["dist/overlay.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
