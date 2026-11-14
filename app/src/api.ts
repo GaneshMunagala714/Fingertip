@@ -11,6 +11,12 @@ function withKey(path: string): string {
 }
 
 export class ApiError extends Error {}
+/** The request never got an answer (it may or may not have reached the server). */
+export class NetworkError extends ApiError {}
+
+export function newRequestId(): string {
+  try { return crypto.randomUUID() } catch { return `r${Date.now().toString(36)}${Math.random().toString(36).slice(2)}` }
+}
 
 export async function post<T = any>(path: string, body?: unknown): Promise<T> {
   let res: Response
@@ -21,7 +27,7 @@ export async function post<T = any>(path: string, body?: unknown): Promise<T> {
       body: body === undefined ? undefined : JSON.stringify(body),
     })
   } catch {
-    throw new ApiError("Couldn't reach the server. Check your connection.")
+    throw new NetworkError("Couldn't reach the server. Check your connection.")
   }
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new ApiError(typeof data.detail === 'string' ? data.detail : 'Something went wrong. Please try again.')

@@ -73,6 +73,25 @@ def test_controller_uses_intro_style():
     assert sent and "I can't speak" in sent[0]
 
 
+def test_send_retry_with_same_request_id_is_not_spoken_twice():
+    import json as _json
+    with TestClient(app) as c:
+        sid = c.post("/api/calls", json={"number": "4135550101", "name": "Jo", "knows_sign": True}).json()["sid"]
+        with c.websocket_connect(f"/ws/relay/{sid}") as relay_ws:
+            from app.main import sessions
+            relay_ws.send_text(_json.dumps({"type": "setup", "callSid": sessions[sid].call_sid}))
+            import time as _t
+            _t.sleep(0.1)
+            body = {"text": "See you soon.", "source": "typed", "request_id": "req-1"}
+            r1 = c.post(f"/api/calls/{sid}/send", json=body).json()
+            r2 = c.post(f"/api/calls/{sid}/send", json=body).json()
+            assert r1["ok"] and r1["request_id"] == "req-1" and "duplicate" not in r1
+            assert r2["ok"] and r2.get("duplicate") is True
+            msg = _json.loads(relay_ws.receive_text())
+            assert msg["type"] == "text" and msg["token"] == "See you soon."
+        c.post(f"/api/calls/{sid}/hangup")
+
+
 def test_guard_numbers_days_negation():
     assert translation_guard("2 tacos at 7:30.", "2 tacos a las 7:30.", ES).ok
     assert not translation_guard("2 tacos at 7:30.", "2 tacos a las 8:30.", ES).ok

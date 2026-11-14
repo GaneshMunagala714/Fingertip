@@ -54,8 +54,12 @@ class Hub:
         self.contacts: list[dict] = []
         self.voice_id: Optional[str] = None
         self.intro_style = "deaf"          # how the heads-up describes the user (app Settings)
+        self._eid = 0
 
     async def broadcast(self, msg: dict) -> None:
+        # Every event carries an id and a server timestamp (docs/CONTRACT.md).
+        self._eid += 1
+        msg = {**msg, "eid": self._eid, "ts": round(time.time(), 3)}
         dead = []
         for ws in list(self.sockets):
             try:
@@ -505,13 +509,25 @@ class SendIn(BaseModel):
     force: bool = False
     hash: Optional[str] = None      # required for source=draft: the hash shown with that draft
     tone: str = ""
+    request_id: str = ""            # client-made; a retry with the same id is answered, not re-spoken
+
+
+sent_requests: dict[str, dict] = {}     # request_id -> the answer it got (bounded)
 
 
 @app.post("/api/calls/{sid}/send")
 async def send(sid: str, body: SendIn, key: Optional[str] = None) -> dict:
     check_key(key)
     c = get_session(sid)
-    return await c.send(body.text, body.source, body.signs, body.draft_id, body.force, body.hash, body.tone)
+    rid = body.request_id[:80]
+    if rid and rid in sent_requests:
+        return {**sent_requests[rid], "request_id": rid, "duplicate": True}
+    r = await c.send(body.text, body.source, body.signs, body.draft_id, body.force, body.hash, body.tone)
+    if rid:
+        sent_requests[rid] = r
+        while len(sent_requests) > 500:
+            sent_requests.pop(next(iter(sent_requests)))
+    return {**r, "request_id": rid} if rid else r
 
 
 class SignsIn(BaseModel):

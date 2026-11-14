@@ -6,7 +6,7 @@ bracket as if it were true. Remove any scene below that wasn't stable on the day
 
 ---
 
-## Sign2Speak · Your language. Every conversation.
+## [Name TBD] · Communicate your way. Be understood anywhere.
 
 ### The problem
 Phone calls still assume everyone can hear and speak. Deaf signers today can use relay services
@@ -15,7 +15,9 @@ avoid the call. Booking a doctor, ordering takeout, or answering Mom about Sunda
 need a third person or a keyboard.
 
 ### What it does
-The signer signs (or types) on their own phone or laptop. The person they're calling hears a
+The user signs, types, or taps one of their own quick replies on their phone or laptop. Not
+everyone who uses it is Deaf, and not everyone signs: a nonspeaking hearing user types or taps, and
+the heads-up describes them the way they choose. The person they're calling hears a
 natural voice on an ordinary phone call and installs nothing. Their reply comes back as live
 captions. The same engine also speaks into Google Meet, and into Zoom or Teams through a virtual
 microphone.
@@ -32,7 +34,10 @@ An assistant handles the awkward parts of a live call, but never decides anythin
 - Calls in Spanish, French or Portuguese: the caller hears their language, and the signer reads
   English with the caller's own words underneath. Numbers, days and "no" are checked after
   translation.
-- Gesture Synth (Playground): play music with your hands, seen as light and felt as vibration.
+- Captions in four sizes; customizable quick replies, always one tap away.
+- Gesture Synth (Playground): a "Living Aurora". Play music with your hands, and each note becomes
+  light, shape and motion: low notes violet and round, high notes gold and sharp. A vibration pulse
+  comes with every note, and it is fully playable with the sound off.
 
 ### How we built it
 - **Signer app:** React + TypeScript PWA. MediaPipe Holistic runs in a Web Worker on the device.

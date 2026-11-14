@@ -1,24 +1,25 @@
 /**
  * Gesture Synth (Playground). A separate mode: it never runs during a call and can't send speech.
  *
- * Music you can see and feel as well as hear: every note is a burst of colour in its own lane and
- * a pulse of vibration, so it's playable with the sound off. Pinch to play, move to slide through
- * the scale, raise your hand for a brighter sound, hold an open palm for a chord.
+ * Music you can see and feel as well as hear (Living Aurora, synth/aurora.ts): every note is light,
+ * shape and a pulse of vibration, so it's playable with the sound off. Pinch to play, move sideways
+ * through the notes, raise your hand for a brighter sound, hold an open palm for a chord.
  * No camera? Touch or click the stage: same instrument.
  */
 import { useEffect, useRef, useState } from 'react'
 import * as Tone from 'tone'
 import { watch } from '../sign/camera'
 import type { Frame } from '../sign/segmenter'
-import { cutoffFor, HandVoice, laneOf, LANES, SCALE, type HandEvent } from '../synth/mapping'
-
-type Burst = { x: number; y: number; lane: number; t: number; big: boolean }
-type Cursor = { x: number; y: number; pinched: boolean; palm: boolean; seen: number }
-
-const hue = (lane: number) => Math.round((lane / LANES) * 300 + 200) % 360
+import { Aurora } from '../synth/aurora'
+import { cutoffFor, HandVoice, laneOf, SCALE, type HandEvent } from '../synth/mapping'
 
 function makeEngine() {
-  const reverb = new Tone.Reverb({ decay: 2.8, wet: 0.28 }).toDestination()
+  // Everything goes through `master`; the meter reads it BEFORE the mute, so the light still
+  // follows the music when the sound is off.
+  const master = new Tone.Gain(1).toDestination()
+  const meter = new Tone.Meter({ smoothing: 0.85 })
+  master.connect(meter)
+  const reverb = new Tone.Reverb({ decay: 2.8, wet: 0.28 }).connect(master)
   const delay = new Tone.FeedbackDelay({ delayTime: '8n', feedback: 0.25, wet: 0.18 }).connect(reverb)
   const voice = () => {
     const filter = new Tone.Filter({ type: 'lowpass', frequency: 1800, Q: 1 }).connect(delay)
@@ -33,7 +34,12 @@ function makeEngine() {
     oscillator: { type: 'sine' }, envelope: { attack: 0.25, decay: 0.3, sustain: 0.7, release: 1.4 },
   }).connect(reverb)
   pad.volume.value = -14
-  return { voices: [voice(), voice(), voice()], pad, dispose: () => { reverb.dispose(); delay.dispose(); pad.dispose() } }
+  return {
+    voices: [voice(), voice(), voice()], pad, meter,
+    /** 0..1 loudness of what is actually playing. */
+    level: () => { const db = meter.getValue() as number; return Number.isFinite(db) ? Math.min(1, Math.max(0, (db + 48) / 40)) : 0 },
+    dispose: () => { reverb.dispose(); delay.dispose(); pad.dispose(); meter.dispose(); master.dispose() },
+  }
 }
 
 export function Playground({ onBack }: { onBack: () => void }) {
@@ -45,8 +51,8 @@ export function Playground({ onBack }: { onBack: () => void }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const video = useRef<HTMLVideoElement>(null)
   const engine = useRef<ReturnType<typeof makeEngine> | null>(null)
-  const bursts = useRef<Burst[]>([])
-  const cursors = useRef<Cursor[]>([0, 1, 2].map(() => ({ x: 0, y: 0, pinched: false, palm: false, seen: 0 })))
+  const sky = useRef(new Aurora())
+  const lanes = useRef<number[]>([5, 5, 5])
   const chords = useRef<Record<number, string[]>>({})
 
   // ---- one place where gestures become sound, light and vibration
@@ -54,10 +60,12 @@ export function Playground({ onBack }: { onBack: () => void }) {
     const e = engine.current
     if (!e) return
     const v = e.voices[i]
+    const now = performance.now()
     for (const ev of events) {
       if (ev.type === 'noteOn') {
         v.synth.triggerAttack(ev.note)
-        bursts.current.push({ x: ev.x, y: ev.y, lane: ev.lane, t: performance.now(), big: false })
+        lanes.current[i] = ev.lane
+        sky.current.noteOn(ev.x, ev.y, ev.lane, now)
         try { navigator.vibrate?.(22) } catch { /* not supported */ }
         setCount((c) => c + 1)
       } else if (ev.type === 'noteOff') {
@@ -65,7 +73,7 @@ export function Playground({ onBack }: { onBack: () => void }) {
       } else if (ev.type === 'chordOn') {
         chords.current[i] = ev.notes
         e.pad.triggerAttack(ev.notes)
-        bursts.current.push({ x: ev.x, y: ev.y, lane: ev.lane, t: performance.now(), big: true })
+        sky.current.chordOn(ev.x, ev.y, ev.lane, ev.notes.map((n) => SCALE.indexOf(n)), now)
         try { navigator.vibrate?.([40, 30, 40]) } catch { /* not supported */ }
         setCount((c) => c + 1)
       } else if (ev.type === 'chordOff') {
@@ -73,7 +81,8 @@ export function Playground({ onBack }: { onBack: () => void }) {
         delete chords.current[i]
       } else {
         v.filter.frequency.rampTo(cutoffFor(ev.y), 0.05)
-        cursors.current[i] = { x: ev.x, y: ev.y, pinched: ev.pinched, palm: ev.palm, seen: performance.now() }
+        const lane = ev.pinched ? lanes.current[i] : laneOf(ev.x, null)
+        sky.current.hand(i, ev.x, ev.y, lane, ev.pinched || ev.palm, now)
       }
     }
   }
@@ -138,41 +147,10 @@ export function Playground({ onBack }: { onBack: () => void }) {
       const h = c.clientHeight
       if (c.width !== w * dpr) { c.width = w * dpr; c.height = h * dpr }
       g.setTransform(dpr, 0, 0, dpr, 0, 0)
-      g.clearRect(0, 0, w, h)
-      const now = performance.now()
-      const lw = w / LANES
-      const lit = new Set(bursts.current.filter((b) => now - b.t < 350).map((b) => b.lane))
-      for (let i = 0; i < LANES; i++) {
-        g.fillStyle = `hsla(${hue(i)}, 85%, 60%, ${lit.has(i) ? 0.32 : i % 2 ? 0.05 : 0.09})`
-        g.fillRect(i * lw, 0, lw, h)
-        g.fillStyle = `hsla(${hue(i)}, 85%, 78%, 0.85)`
-        g.font = '600 12px "Space Grotesk", system-ui'
-        g.textAlign = 'center'
-        g.fillText(SCALE[i].replace(/\d/, ''), i * lw + lw / 2, h - 12)
-      }
-      bursts.current = bursts.current.filter((b) => now - b.t < 1400)
-      for (const b of bursts.current) {
-        const k = (now - b.t) / 1400
-        const r = (b.big ? 60 : 26) + k * (b.big ? 260 : 150)
-        g.beginPath()
-        g.arc(b.x * w, b.y * h, r, 0, Math.PI * 2)
-        g.strokeStyle = `hsla(${hue(b.lane)}, 95%, 68%, ${1 - k})`
-        g.lineWidth = (b.big ? 10 : 6) * (1 - k) + 1
-        g.stroke()
-        g.beginPath()
-        g.arc(b.x * w, b.y * h, (b.big ? 30 : 16) * (1 - k), 0, Math.PI * 2)
-        g.fillStyle = `hsla(${hue(b.lane)}, 95%, 75%, ${0.9 * (1 - k)})`
-        g.fill()
-      }
-      for (const cur of cursors.current) {
-        if (now - cur.seen > 400) continue
-        const lane = laneOf(cur.x, null)
-        g.beginPath()
-        g.arc(cur.x * w, cur.y * h, cur.pinched ? 18 : cur.palm ? 34 : 24, 0, Math.PI * 2)
-        g.strokeStyle = `hsl(${hue(lane)}, 95%, 75%)`
-        g.lineWidth = 3
-        g.stroke()
-        if (cur.pinched || cur.palm) { g.fillStyle = `hsla(${hue(lane)}, 95%, 70%, 0.55)`; g.fill() }
+      try {
+        sky.current.draw(g, w, h, performance.now(), engine.current?.level() ?? 0)
+      } catch (err) {
+        console.warn('aurora frame failed', err)      // a visual glitch must never stop the music
       }
       raf = requestAnimationFrame(draw)
     }

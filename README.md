@@ -1,10 +1,15 @@
-# Sign2Speak
+# Unnamed (working title)
 
-> **Picking this up? Start with [HANDOFF.md](HANDOFF.md):** current status, what is unverified, and the first hour on site.
+> The old name, Sign2Speak, is retired; the team hasn't picked the new one. It's set in one place
+> per surface (`app/src/brand.ts`, `extension/content.js`, server `APP_NAME`).
+>
+> **Picking this up? Start with [HANDOFF.md](HANDOFF.md).** Full feature status: [docs/STATUS.md](docs/STATUS.md).
+> Keys to bring: [KEYS_NEEDED.md](KEYS_NEEDED.md). Event contract: [docs/CONTRACT.md](docs/CONTRACT.md).
 
-A Deaf person who signs ASL can make and take a real phone call. They read the other person's
-words live, sign or type back, and the other person hears a natural voice. The hearing person
-uses their ordinary phone and installs nothing.
+**Communicate your way. Be understood anywhere.** A Deaf, hard-of-hearing or nonspeaking person
+makes and takes real phone calls and joins existing meetings. They sign, type or tap a quick reply.
+The other person hears a natural voice on their own phone or in their meeting, and their words
+come back as live captions. The other person installs nothing.
 
 Built at HackUMass XIV. Sponsor tech: **Vultr** (hosting), **Gemini API** (turn analysis, reply
 writing, recap).

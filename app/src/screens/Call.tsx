@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { post } from '../api'
+import { NetworkError, newRequestId, post } from '../api'
 import { DEFAULT_QUICK, INTRO, mmss, VOICES } from '../data'
 import { Alert, ArrowUp, HangUp, Hand, Keyboard, Music, Phone } from '../icons'
 import type { CallView, Line } from '../types'
@@ -208,10 +208,13 @@ export function InCall({ call, online, dispatch, signing: signingProp = null, un
     setBusy(true)
     setErr('')
     try {
-      const r: any = await api('send', {
+      // One request id per tap: if the network drops mid-request we retry once, and the server
+      // answers the retry from memory instead of speaking the line twice.
+      const body = {
         text: t, source, draft_id: draftId, hash: source === 'draft' ? call.draft?.hash : undefined,
-        signs: source === 'draft' ? call.draft?.signs ?? [] : [],
-      })
+        signs: source === 'draft' ? call.draft?.signs ?? [] : [], request_id: newRequestId(),
+      }
+      const r: any = await api('send', body).catch((e) => (e instanceof NetworkError ? api('send', body) : Promise.reject(e)))
       if (!r.ok) setErr(r.reason ?? "Couldn't send that.")
       else { setMode('idle'); setText('') }
     } catch (e: any) {
