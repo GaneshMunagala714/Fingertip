@@ -15,28 +15,31 @@ import type { Frame } from './segmenter'
 export const trackerName = (): 'lite' | 'holistic' =>
   new URLSearchParams(location.search).get('tracker') === 'lite' ? 'lite' : 'holistic'
 
-let worker: Worker | null = null
-let ready: Promise<Worker> | null = null
+type TrackerName = 'lite' | 'holistic' | 'hands'
+const workers: Partial<Record<TrackerName, Promise<Worker>>> = {}
 const listeners = new Set<(m: any) => void>()
 
-function getWorker(): Promise<Worker> {
-  if (!ready) {
-    ready = new Promise((resolve, reject) => {
+function getWorker(tracker: TrackerName): Promise<Worker> {
+  if (!workers[tracker]) {
+    const ready: Promise<Worker> = new Promise((resolve, reject) => {
       const w = new Worker(new URL('./tracker.worker.ts', import.meta.url))   // classic: MediaPipe uses importScripts
       w.onmessage = (e) => {
-        if (e.data.type === 'ready') { worker = w; resolve(w) } else if (e.data.type === 'error') reject(new Error(e.data.message))
+        if (e.data.type === 'ready') resolve(w)
+        else if (e.data.type === 'error') reject(new Error(e.data.message))
         else listeners.forEach((l) => l(e.data))
       }
       w.onerror = (e) => reject(e)
-      w.postMessage({ type: 'init', tracker: trackerName(), base: location.origin })
+      w.postMessage({ type: 'init', tracker, base: location.origin })
     })
-    ready.catch(() => { ready = null; worker?.terminate(); worker = null })
+    workers[tracker] = ready
+    ready.catch(() => { delete workers[tracker] })
   }
-  return ready
+  return workers[tracker]!
 }
 
 /** Tracks every frame the worker has time for. Returns a stop function. */
-export function watch(video: HTMLVideoElement, onFrame: (f: Frame) => void, onFps?: (fps: number, msPerFrame: number) => void): () => void {
+export function watch(video: HTMLVideoElement, onFrame: (f: Frame) => void, onFps?: (fps: number, msPerFrame: number) => void,
+  tracker: TrackerName = trackerName()): () => void {
   let stop = false
   let busy = false
   let n = 0
@@ -52,7 +55,7 @@ export function watch(video: HTMLVideoElement, onFrame: (f: Frame) => void, onFp
     const now = performance.now()
     if (now - t0 > 2000) { onFps?.((n * 1000) / (now - t0), ms / n); n = 0; ms = 0; t0 = now }
   }
-  getWorker().then((w) => {
+  getWorker(tracker).then((w) => {
     listeners.add(onMsg)
     const tick = async () => {
       if (stop) return

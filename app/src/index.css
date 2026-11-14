@@ -293,3 +293,31 @@ input, textarea { font: inherit; color: inherit; }
 .lab-self.signing { border-color: var(--red); }
 select.num-input { appearance: auto; }
 .meet-self { position: absolute; inset: 0; width: 100%; height: 100%; right: auto; top: 0; }
+
+/* top-level tabs */
+.tabs { display: flex; background: var(--bg); border-radius: 12px; padding: 4px; gap: 4px; }
+.tabs button { flex: 1; min-height: 44px; border-radius: 9px; font-family: var(--head); font-weight: 500; font-size: 15px; color: var(--ink-2); }
+.tabs button.on { background: var(--card); color: var(--ink); font-weight: 700; box-shadow: 0 1px 3px rgba(16,21,28,.12); }
+
+/* meetings */
+.mstep { display: flex; gap: 12px; align-items: flex-start; padding: 6px 0; }
+.mstep b { font-size: 17px; }
+.mdot { width: 12px; height: 12px; border-radius: 99px; background: #cfd4db; margin-top: 6px; flex: none; }
+.mdot.ok { background: #127a3e; } .mdot.no { background: var(--amber); }
+.mcode { display: block; background: var(--dark); color: #fff; border-radius: 8px; padding: 8px 10px; margin: 6px 0; font-size: 13px; overflow-wrap: anywhere; }
+.meet-embedded { display: flex; flex-direction: column; gap: 10px; }
+.meet-embedded .pad16 { gap: 10px; }
+
+/* playground */
+.pg { position: fixed; inset: 0; background: #0b0f15; color: #fff; overflow: hidden; touch-action: none; }
+.pg-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); transition: opacity .4s; }
+.pg-canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
+.pg-top { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; padding: calc(12px + env(safe-area-inset-top)) 14px 0; pointer-events: none; }
+.pg-title { font-family: var(--head); font-size: 18px; }
+.pg-btn { pointer-events: auto; min-height: 44px; padding: 0 16px; border-radius: 12px; background: rgba(255,255,255,.12); color: #fff; font-weight: 700; }
+.pg-hint { position: absolute; left: 16px; right: 16px; bottom: calc(40px + env(safe-area-inset-bottom)); text-align: center; font-size: 17px; pointer-events: none; text-shadow: 0 1px 6px #000; }
+.pg-start { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center; background: rgba(11,15,21,.82); }
+.pg-start h1 { font-size: 34px; max-width: 420px; }
+.pg-start p { margin: 0 0 8px; color: #c8ced6; max-width: 380px; font-size: 18px; }
+.pg-start .btn { min-width: 240px; }
+.pg-ghost { background: rgba(255,255,255,.12); color: #fff; }

@@ -3,7 +3,9 @@ import { Live, post } from './api'
 import { DEFAULT_CONTACTS, sameNumber, VOICES } from './data'
 import { AfterCall, Calling, InCall, Incoming } from './screens/Call'
 import { InPerson } from './screens/InPerson'
-import { ContactPage, ErrandNote, Home, VoicePicker } from './screens/Setup'
+import { MeetingsPage } from './screens/Meet'
+import { Playground } from './screens/Playground'
+import { ContactPage, ErrandNote, Home, Tabs, VoicePicker, type Tab } from './screens/Setup'
 import { initial, reduce } from './store'
 import { load, save } from './storage'
 import type { CallView, Contact, Recent, SavedTranscript } from './types'
@@ -25,6 +27,8 @@ export default function App() {
   const [firstWords, setFirstWords] = useState<Record<string, string | null>>({})
   const [dialError, setDialError] = useState('')
   const [dialing, setDialing] = useState(false)
+  const [tab, setTab] = useState<Tab>(() => (location.hash === '#meetings' ? 'meetings' : location.hash === '#play' ? 'play' : 'call'))
+  const tabs = <Tabs tab={tab} onTab={setTab} />
   const [myName, setMyName] = useState<string>(() => load('myName', ''))
   const live = useRef<Live | null>(null)
   const helloRef = useRef(() => ({}))
@@ -137,7 +141,10 @@ export default function App() {
           onBack={() => { setDialError(''); setRoute({ name: 'contact', id: route.contact.id }) }}
           onCall={(note) => { updateContact({ ...route.contact, note }); startCall(route.contact, note) }} />
       default:
-        return <Home contacts={contacts} recents={recents} online={online}
+        // Playground and Meetings never run during a call: calls take over the screen above.
+        if (tab === 'play') return <Playground onBack={() => setTab('call')} />
+        if (tab === 'meetings') return <MeetingsPage tabs={tabs} />
+        return <Home contacts={contacts} recents={recents} online={online} tabs={tabs}
           onOpen={(c) => setRoute({ name: 'contact', id: c.id })}
           onDial={(n) => {
             const known = contacts.find((k) => sameNumber(k.number, n))
@@ -146,7 +153,7 @@ export default function App() {
           onInPerson={() => setRoute({ name: 'inperson' })}
           onSettings={() => setRoute({ name: 'voice', back: { name: 'home' } })} />
     }
-  }, [ringing, active, ended, route, contacts, recents, online, voiceId, voiceName, firstWords, dialError, dialing, startCall, myName])
+  }, [ringing, active, ended, route, contacts, recents, online, voiceId, voiceName, firstWords, dialError, dialing, startCall, myName, tab])
 
   return screen
 }

@@ -12,11 +12,22 @@ const d2 = (a: LM, b: LM) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2
 
 let detect: ((img: ImageBitmap, ts: number) => { pose: P[] | null; lh: P[] | null; rh: P[] | null }) | null = null
 
-async function init(tracker: 'holistic' | 'lite', base: string) {
+async function init(tracker: 'holistic' | 'lite' | 'hands', base: string) {
   const files = await FilesetResolver.forVisionTasks(`${base}/mediapipe/wasm`)
   const model = (f: string) => `${base}/models/${f}`
   const withFallback = async <T,>(make: (d: 'GPU' | 'CPU') => Promise<T>) => {
     try { return await make('GPU') } catch { return make('CPU') }
+  }
+  if (tracker === 'hands') {
+    // Playground only: hands alone, the fastest tracker. Left/right = side of the picture.
+    const hands = await withFallback((delegate) => HandLandmarker.createFromOptions(files, {
+      baseOptions: { modelAssetPath: model('hand_landmarker.task'), delegate }, runningMode: 'VIDEO', numHands: 2,
+    }))
+    detect = (img, ts) => {
+      const hs = [...hands.detectForVideo(img, ts).landmarks].sort((a, b) => a[0].x - b[0].x)
+      return { pose: null, lh: pts(hs.length > 1 ? hs[1] : undefined), rh: pts(hs[0]) }
+    }
+    return
   }
   if (tracker === 'holistic') {
     const h = await withFallback((delegate) => HolisticLandmarker.createFromOptions(files, {

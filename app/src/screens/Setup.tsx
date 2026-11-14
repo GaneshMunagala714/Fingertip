@@ -79,9 +79,23 @@ type HomeProps = {
   onDial: (number: string) => void
   onInPerson: () => void
   onSettings: () => void
+  tabs?: React.ReactNode
 }
 
-export function Home({ contacts, recents, online, onOpen, onDial, onInPerson, onSettings }: HomeProps) {
+export type Tab = 'call' | 'meetings' | 'play'
+
+/** The three top-level experiences. */
+export function Tabs({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
+  return (
+    <div className="tabs" role="tablist" aria-label="Sign2Speak">
+      {([['call', 'Call'], ['meetings', 'Meetings'], ['play', 'Playground']] as const).map(([k, l]) => (
+        <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => onTab(k)}>{l}</button>
+      ))}
+    </div>
+  )
+}
+
+export function Home({ contacts, recents, online, onOpen, onDial, onInPerson, onSettings, tabs }: HomeProps) {
   const [sheet, setSheet] = useState<'pad' | 'new' | null>(null)
   const favs = contacts.filter((c) => c.fav)
   const find = (r: Recent) => contacts.find((c) => c.id === r.contactId)
@@ -89,7 +103,8 @@ export function Home({ contacts, recents, online, onOpen, onDial, onInPerson, on
   return (
     <div className="screen">
       <div className="head-white">
-        <div className="title-row">
+        {tabs}
+        <div className="title-row" style={tabs ? { marginTop: 12 } : undefined}>
           <div>
             <h1>Calls</h1>
             {!online && <div className="fine" style={{ color: 'var(--amber)' }}>Connecting to Sign2Speak...</div>}

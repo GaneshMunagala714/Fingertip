@@ -43,7 +43,7 @@ const S2S = {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
       })
       if (!r.ok) return false
-      const audio = await r.arrayBuffer()
+      const audio = await r.arrayBuffer()   // WAV
       window.postMessage({ s2s: 'play', audio }, '*', [audio])
       return true
     } catch {

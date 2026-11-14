@@ -195,7 +195,7 @@ async def health() -> dict:
         "active_calls": sum(1 for c in sessions.values() if c.state != ENDED),
         "app_connected": len(hub.sockets),
         "bridges": len(bridges),
-        "meet_voice": bool(settings.elevenlabs_api_key),
+        "meet_voice": tts_provider() or None,
         "signs": state["signs"].config() if state["signs"] else None,
         "latency": latency.summary(),
     }
@@ -653,28 +653,72 @@ async def meet_say(body: SayIn, key: Optional[str] = None) -> dict:
 class TtsIn(BaseModel):
     text: str
     voice_id: Optional[str] = None
-    fmt: str = "mp3"                # mp3 (browser) | pcm (bridge: raw 16-bit mono 22.05 kHz)
+    style: str = ""                 # e.g. "warm and friendly" (Gemini speech style)
+
+
+def _wav(pcm: bytes, rate: int) -> bytes:
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(pcm)
+    return buf.getvalue()
+
+
+def tts_provider() -> str:
+    if settings.elevenlabs_api_key:
+        return "elevenlabs"
+    if settings.gemini_api_key:
+        return "gemini"
+    return ""
 
 
 @app.post("/api/tts")
 async def tts(body: TtsIn, key: Optional[str] = None) -> Response:
-    """Speech for the Meet extension's mic. Calls don't use this (Twilio speaks there).
-    Without ELEVENLABS_API_KEY the extension posts to Meet chat only."""
+    """Speech for meetings (Meet extension mic, desktop bridge). Phone calls don't use this: Twilio speaks there.
+    Returns a WAV file. Uses ElevenLabs if ELEVENLABS_API_KEY is set (the signer's chosen voice),
+    otherwise Gemini speech generation on the Gemini key."""
     check_key(key)
-    if not settings.elevenlabs_api_key:
-        raise HTTPException(503, "Voice for Meet isn't set up. Your message still goes to the chat.")
+    import base64
+
     import httpx
-    vid = body.voice_id or hub.voice_id or settings.default_voice_id
-    async with httpx.AsyncClient(timeout=15) as client:
-        r = await client.post(
-            f"https://api.elevenlabs.io/v1/text-to-speech/{vid}",
-            params={"output_format": "pcm_22050" if body.fmt == "pcm" else "mp3_44100_128"},
-            headers={"xi-api-key": settings.elevenlabs_api_key, "accept": "audio/mpeg"},
-            json={"text": body.text[:500], "model_id": settings.elevenlabs_model})
-    if r.status_code != 200:
-        log.warning("tts %s: %s", r.status_code, r.text[:200])
-        raise HTTPException(502, "Couldn't make the voice. Your message still goes to the chat.")
-    return Response(r.content, media_type="audio/pcm" if body.fmt == "pcm" else "audio/mpeg")
+    provider = tts_provider()
+    if not provider:
+        raise HTTPException(503, "The meeting voice isn't set up on the server (it needs a Gemini or ElevenLabs key).")
+    text = body.text.strip()[:500]
+    t0 = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            if provider == "elevenlabs":
+                vid = body.voice_id or hub.voice_id or settings.default_voice_id
+                r = await client.post(
+                    f"https://api.elevenlabs.io/v1/text-to-speech/{vid}", params={"output_format": "pcm_22050"},
+                    headers={"xi-api-key": settings.elevenlabs_api_key},
+                    json={"text": text, "model_id": settings.elevenlabs_model})
+                r.raise_for_status()
+                audio = _wav(r.content, 22050)
+            else:
+                # Gemini Interactions API, per ai.google.dev/gemini-api/docs/speech-generation (checked 2026-11-14).
+                content: dict = {"type": "text", "text": text}
+                if body.style:
+                    content["annotations"] = [{"type": "speech_metadata", "style": body.style[:80]}]
+                r = await client.post(
+                    "https://generativelanguage.googleapis.com/v1beta/interactions",
+                    headers={"x-goog-api-key": settings.gemini_api_key},
+                    json={"model": settings.gemini_tts_model,
+                          "input": [{"type": "user_input", "content": [content]}],
+                          "response_format": {"type": "audio"},
+                          "generation_config": {"speech_config": [{"voice": settings.gemini_tts_voice}]}})
+                r.raise_for_status()
+                parts = [c for st in r.json().get("steps", []) if st.get("type") == "model_output"
+                         for c in st.get("content", []) if c.get("type") == "audio"]
+                audio = base64.b64decode(parts[-1]["data"])
+    except Exception as e:
+        log.warning("tts (%s) failed: %s", provider, str(e)[:300])
+        raise HTTPException(502, "Couldn't make the voice just now. Try again, or type in the meeting chat.") from e
+    latency.record(f"tts_{provider}_ms", (time.perf_counter() - t0) * 1000)
+    return Response(audio, media_type="audio/wav")
 
 
 @app.exception_handler(Exception)

@@ -44,6 +44,8 @@ class Settings:
 
     # Meet extension only (calls use ConversationRelay): direct ElevenLabs TTS for the Meet mic.
     elevenlabs_api_key: str = field(default_factory=lambda: os.getenv("ELEVENLABS_API_KEY", ""))
+    gemini_tts_model: str = field(default_factory=lambda: os.getenv("GEMINI_TTS_MODEL", "gemini-3.8-flash-lite-tts"))
+    gemini_tts_voice: str = field(default_factory=lambda: os.getenv("GEMINI_TTS_VOICE", "Kore"))
     elevenlabs_model: str = field(default_factory=lambda: os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5"))
 
     # Optional shared key for the signer app (?key=... once, kept in the browser).

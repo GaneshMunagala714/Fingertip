@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { post } from '../api'
 import { useSigning } from '../sign/useSigning'
 import { SelfView } from './Call'
@@ -48,7 +48,8 @@ export function MeetPanel({ preview = true }: { preview?: boolean }) {
  * Signs (or typing) -> one sentence -> "Send to meeting": the extension posts it to Meet chat and,
  * if voice is set up on the server, plays it into the Meet mic.
  */
-export function MeetLive() {
+export function MeetLive({ embedded = false }: { embedded?: boolean }) {
+  const [note, setNote] = useState('')
   const [draft, setDraft] = useState('')
   const [editing, setEditing] = useState(false)
   const [sent, setSent] = useState<string[]>([])
@@ -64,18 +65,26 @@ export function MeetLive() {
   function send() {
     const text = draft.trim()
     if (!text) return
-    if (!opener) { setErr('Open this from the Sign2Speak button inside Google Meet.'); return }
-    opener.postMessage({ source: 'sign2speak', type: 'send', text }, 'https://meet.google.com')
-    setSent((s) => [...s, text])
-    setDraft('')
-    setEditing(false)
+    setErr('')
+    const done = () => { setSent((s) => [...s, text]); setDraft(''); setEditing(false) }
+    if (opener && !embedded) {
+      opener.postMessage({ source: 'sign2speak', type: 'send', text }, 'https://meet.google.com')
+      done()
+      return
+    }
+    // No Meet window: speak through the desktop bridge (virtual microphone for Zoom, Teams, Meet app).
+    post<{ ok: boolean; bridges: number; reason?: string }>('/api/meet/say', { text }).then((r) => {
+      if (!r.ok) { setErr(r.reason ?? "Couldn't send that."); return }
+      if (r.bridges === 0) { setErr('Nothing was said: the desktop bridge is not connected. See the steps above.'); return }
+      setNote(`Sent to ${r.bridges === 1 ? 'your virtual microphone' : `${r.bridges} bridges`}.`)
+      done()
+    }).catch((e) => setErr(e.message))
   }
 
   return (
-    <div className="screen">
-      <div className="pad16" style={{ flex: 1, overflow: 'auto' }}>
-        <h3 style={{ fontSize: 20 }}>Sign2Speak</h3>
-        <div className="fine">In this meeting</div>
+    <div className={embedded ? 'meet-embedded' : 'screen'}>
+      <div className="pad16" style={embedded ? { padding: 0 } : { flex: 1, overflow: 'auto' }}>
+        {!embedded && <><h3 style={{ fontSize: 20 }}>Sign2Speak</h3><div className="fine">In this meeting</div></>}
         <div style={{ position: 'relative', height: 200 }}>
           <SelfView signing={!!sign.signs} onVideo={sign.onVideo} className="selfview meet-self" />
         </div>
@@ -94,12 +103,67 @@ export function MeetLive() {
               : <button className="draftbub" onClick={() => setEditing(true)}>{draft}</button>}
           </div>
         )}
-        <div className="fine">Everyone hears it in your voice and sees it in chat.</div>
+        <div className="fine">{embedded ? 'Sign, or tap Type. Nothing is said until you tap Say it.' : 'Everyone hears it in your voice and sees it in chat.'}</div>
+        {note && !err && <div className="fine" role="status" style={{ color: 'var(--blue)' }}>{note}</div>}
         {err && <div className="err" role="alert">{err}</div>}
       </div>
-      <div className="foot">
+      <div className="foot" style={embedded ? { border: 0, padding: '12px 0 0', background: 'none' } : undefined}>
         <button className="btn btn-ghost" onClick={() => setEditing(true)}>{draft ? 'Edit' : 'Type'}</button>
-        <button className="btn btn-blue grow" style={{ fontSize: 16 }} disabled={!draft.trim()} onClick={send}>Send to meeting</button>
+        <button className="btn btn-blue grow" style={{ fontSize: 16 }} disabled={!draft.trim()} onClick={send}>{embedded ? 'Say it in the meeting' : 'Send to meeting'}</button>
+      </div>
+    </div>
+  )
+}
+
+
+/**
+ * Meetings tab: the same sign-to-voice engine, spoken into a meeting you already use.
+ * Every status line here is read from the server; nothing is assumed.
+ */
+type Health = { bridges: number; meet_voice: string | null }
+
+export function MeetingsPage({ tabs }: { tabs: React.ReactNode }) {
+  const [h, setH] = useState<Health | null>(null)
+  useEffect(() => {
+    let stop = false
+    const poll = () => fetch('/api/health').then((r) => r.json()).then((j) => { if (!stop) setH(j) }).catch(() => { if (!stop) setH(null) })
+    poll()
+    const t = setInterval(poll, 3000)
+    return () => { stop = true; clearInterval(t) }
+  }, [])
+  const server = `${location.origin}`
+  const Step = ({ ok, title, children }: { ok: boolean | null; title: string; children: React.ReactNode }) => (
+    <div className="mstep">
+      <span className={`mdot ${ok === true ? 'ok' : ok === false ? 'no' : ''}`} aria-hidden />
+      <div><b>{title}</b><div className="fine">{children}</div></div>
+    </div>
+  )
+  return (
+    <div className="screen">
+      <div className="head-white">{tabs}<h1 style={{ fontSize: 28, marginTop: 12 }}>Meetings</h1>
+        <p className="fine" style={{ margin: '4px 0 0', fontSize: 15 }}>Sign in Zoom, Teams or Meet. The others install nothing.</p></div>
+      <div className="scroll pad16">
+        <div className="cardbox boxpad">
+          <div className="label">Set up once</div>
+          <Step ok={h ? !!h.meet_voice : null} title={h?.meet_voice ? `Voice is ready (${h.meet_voice === 'gemini' ? 'Gemini speech' : 'ElevenLabs'})` : 'Voice on the server'}>
+            {h?.meet_voice ? 'Your sentences can be spoken in meetings.' : h ? 'Not set up: the server needs a Gemini or ElevenLabs key.' : 'Checking...'}
+          </Step>
+          <Step ok={h ? h.bridges > 0 : null} title={h && h.bridges > 0 ? 'Desktop bridge connected' : 'Desktop bridge (Zoom, Teams, any app)'}>
+            {h && h.bridges > 0 ? 'Your virtual microphone is listening for sentences.' : <>
+              Install a virtual audio cable (VB-CABLE on Windows, BlackHole on macOS), then run on this laptop:
+              <code className="mcode">python bridge/sign2speak_bridge.py {server}</code>
+              In the meeting app, pick the cable as your microphone ("CABLE Output" or "BlackHole 2ch").</>}
+          </Step>
+          <Step ok={null} title="Google Meet in Chrome">
+            Load the <code>extension/</code> folder in Chrome (Extensions, Developer mode, Load unpacked), then tap
+            the Sign2Speak button inside Meet. It speaks into your Meet microphone and posts to chat. We can't detect it from here.
+          </Step>
+        </div>
+        <div className="cardbox boxpad">
+          <div className="label">Say something in your meeting</div>
+          <MeetLive embedded />
+        </div>
+        <p className="fine">While Sign2Speak is your microphone, the meeting hears only the generated voice. For what others say, turn on the meeting's own captions.</p>
       </div>
     </div>
   )
