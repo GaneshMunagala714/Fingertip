@@ -11,15 +11,21 @@ writing, recap).
 
 ## Status
 
-| Milestone | State |
-|---|---|
-| M0 Skeleton (FastAPI + app, Twilio TwiML, ConversationRelay socket, Docker + Caddy) | Code done; **needs keys and a deploy to pass its live-call test** |
-| M1 Full call loop with typing (incoming, outgoing, captions, fillers, interruptions, hang-up) | Code done; verified end to end with a fake Twilio; **real 2-minute call not yet run** |
-| M2 Turn analyzer, quick replies, reply writer, guards, confirm sheet, note parser | Done. Test bench passes 100% (rules brain): see `eval/results.md` |
-| M3 Sign recognition | Built. SignBart-ASL-2730 (2,730 ASL signs) + MediaPipe in the browser. Checked on real ASL Citizen signers (`eval/model_check.md`, `eval/pipeline_check.md`); **held-out teammate not measured yet** (`/#signs-lab` + `eval/sign_eval.py`) |
-| M4 UI polish | All 22 design frames built (`/#gallery`) |
-| M5 In-person, reconnects, latency logging | In-person and reconnect built; latency medians logged at `/api/health`; live numbers not measured yet |
-| M6 Meet extension | Built (`extension/`). Tested on a stand-in Meet page: chat posting and mic voice work; **not tried on real Google Meet** |
+Labels as in `MISSION.md` §9. A mock never counts as a pass. Last checked 2026-11-14 on a
+Windows 11 laptop (Python 3.13, Node 24); see `HANDOFF.md` for detail.
+
+| Milestone | State | Evidence |
+|---|---|---|
+| M1 The phone rings | **Blocked** (no Twilio account, number or deploy yet) | `scripts/live_check.py` is ready |
+| M2 Two-way call (captions, typing, interruptions, hang-up) | Implemented, unverified | Fake-Twilio e2e: `server/tests` 19 passed, 1 skipped |
+| Guards, approvals, fillers, note parser (rules brain) | Implemented and tested (offline) | `eval/bench.py`: 34/34 cases, 27/27 guard units |
+| M3 Sign recognition | Implemented; tested on public signers only | `eval/model_check.md`, `eval/pipeline_check.md`; **held-out teammate not measured** |
+| M4 Live Gemini behind the guards | **Blocked** (no key) | `python eval/bench.py --live` |
+| M5 Meetings: Meet extension, desktop bridge | Implemented, unverified | Stand-in Meet page; bridge `--dry-run` only |
+| M6 Advanced feature | Planned | Multilingual is the first pick (`HANDOFF.md` §4) |
+| M7 Gesture Synth (Playground) | Implemented; touch tested, camera play not tried | `app/src/synth` unit tests 7/7 |
+| Signer app (22 frames, Call / Meetings / Playground) | Implemented and browser-tested | `npm run build` passes; `/#gallery` |
+| Docker image | Implemented and tested locally; not yet on Vultr | Built on Docker 27.5; container serves `/` and `/api/health` with `signs.ready: true` |
 
 What's honest to say today: phone calls with live captions, typed and quick-reply answers in a
 natural voice, and a conversation-aware assistant that never agrees to money or bookings

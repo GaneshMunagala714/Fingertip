@@ -29,7 +29,7 @@ then `DECISIONS.md` (why things are the way they are). Repo: github.com/Shrutibr
 | Gesture Synth (Playground) | Implemented; touch play browser-tested, gesture logic unit-tested | Camera play not tried with a real hand |
 | In-person mode | Implemented | Speech captions need Chrome; untested with a real microphone |
 | Live-call checker | Implemented, self-tested with a fake Twilio | `scripts/live_check.py` |
-| Docker image | Written, **never built** | No Docker daemon here; container layout was simulated |
+| Docker image | Built and run locally (Nov 14, Windows + Docker Desktop 27.5) | `/` returns 200; `/api/health` shows `signs.ready: true`. Not yet deployed to Vultr |
 | Multilingual, sound alerts, facial grammar, speaker labels, lip reading | Not started | See §4 |
 | Incoming meeting captions (tab capture + ASR) | Not started | Use the meeting's own captions for now |
 
@@ -38,7 +38,7 @@ then `DECISIONS.md` (why things are the way they are). Repo: github.com/Shrutibr
 1. **Deploy.** Vultr instance with Docker, DNS name, `cp .env.example .env`, fill in keys,
    `docker compose up -d --build`. Open `https://<domain>/api/health`.
    - `gemini.model_ok` must be `true`. `signs.ready` must be `true`.
-   - If the Docker build fails, fix the `Dockerfile` first; it has never been built.
+   - The image has built and run locally (Nov 14); a Linux VM should behave the same, but check.
 2. **Twilio console.** Upgrade from trial. Accept the "Predictive and Generative AI/ML Features
    Addendum" (Voice → Settings). Number's voice webhook: `POST https://<domain>/twilio/voice`;
    status callback: `POST https://<domain>/twilio/status`.
